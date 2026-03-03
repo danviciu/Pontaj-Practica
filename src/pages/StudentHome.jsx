@@ -35,6 +35,13 @@ function isPresentStatus(statusValue) {
     return statusValue === 'VALIDA' || statusValue === 'CORECTATA_MANUAL';
 }
 
+function formatDateKeyForDisplay(dateKey) {
+    if (!dateKey) return '-';
+    const candidate = new Date(`${dateKey}T12:00:00`);
+    if (Number.isNaN(candidate.getTime())) return dateKey;
+    return format(candidate, 'd MMM yyyy', { locale: ro });
+}
+
 export default function StudentHome() {
     const navigate = useNavigate();
     const [user, setUser] = useState(null);
@@ -163,10 +170,11 @@ export default function StudentHome() {
             schedules,
         });
     }, [user, operator, periods, classPlans, practiceSchedules, schedules]);
+    const isCheckInAllowedNow = attendanceWindow ? attendanceWindow.isCheckinAllowedNow : true;
 
     useEffect(() => {
         if (!user?.id || !operator?.id || todayRecord || !attendanceWindow) return;
-        if (!attendanceWindow.hasActivePeriod || !attendanceWindow.isWithinTimeWindow) return;
+        if (!attendanceWindow.isCheckinAllowedNow) return;
         if (!attendanceWindow.timeWindow?.start || !attendanceWindow.timeWindow?.end) return;
 
         const reminderKey = `attendance.reminder.${user.id}.${getDateKey()}`;
@@ -331,19 +339,33 @@ export default function StudentHome() {
                                 {attendanceWindow.hasPeriodsConfigured
                                     ? (attendanceWindow.hasActivePeriod
                                     ? `${attendanceWindow.activePeriod?.startDate || '-'} - ${attendanceWindow.activePeriod?.endDate || '-'}`
-                                    : 'azi NU exista perioada activa')
-                                    : 'fara restrictie explicita de perioada'}
+                                    : attendanceWindow.nextCheckinSlot?.dateKey
+                                        ? `urmatorul interval: ${formatDateKeyForDisplay(attendanceWindow.nextCheckinSlot.dateKey)}`
+                                        : 'azi NU exista perioada activa')
+                                    : attendanceWindow.hasPracticeScheduleConstraints
+                                        ? (
+                                            attendanceWindow.nextCheckinSlot?.dateKey
+                                                ? `urmatorul interval: ${formatDateKeyForDisplay(attendanceWindow.nextCheckinSlot.dateKey)}`
+                                                : 'program configurat, fara interval disponibil'
+                                        )
+                                        : 'fara restrictie explicita de perioada'}
                             </p>
                             <p>
                                 <span className="font-semibold">Ora:</span>{' '}
                                 {attendanceWindow.timeWindow?.start && attendanceWindow.timeWindow?.end
                                     ? `${attendanceWindow.timeWindow.start} - ${attendanceWindow.timeWindow.end}`
-                                    : 'conform programului setat de admin'}
+                                    : attendanceWindow.nextCheckinSlot?.start && attendanceWindow.nextCheckinSlot?.end
+                                        ? `${attendanceWindow.nextCheckinSlot.start} - ${attendanceWindow.nextCheckinSlot.end}`
+                                        : 'conform programului setat de admin'}
                             </p>
-                            <p className={`${attendanceWindow.hasActivePeriod && attendanceWindow.isWithinTimeWindow ? 'text-green-700' : 'text-red-700'} font-medium`}>
-                                {attendanceWindow.hasActivePeriod && attendanceWindow.isWithinTimeWindow
+                            <p className={`${attendanceWindow.isCheckinAllowedNow ? 'text-green-700' : 'text-red-700'} font-medium`}>
+                                {attendanceWindow.isCheckinAllowedNow
                                     ? 'Pontaj permis acum.'
-                                    : 'Pontaj indisponibil acum.'}
+                                    : (
+                                        attendanceWindow.nextCheckinSlot?.dateKey
+                                            ? `Pontaj indisponibil acum. Urmatorul interval: ${formatDateKeyForDisplay(attendanceWindow.nextCheckinSlot.dateKey)} ${attendanceWindow.nextCheckinSlot.start || ''}${attendanceWindow.nextCheckinSlot.end ? ` - ${attendanceWindow.nextCheckinSlot.end}` : ''}.`
+                                            : 'Pontaj indisponibil acum.'
+                                    )}
                             </p>
                         </CardContent>
                     </Card>
@@ -375,7 +397,7 @@ export default function StudentHome() {
                     </Card>
                 )}
 
-                {canCheckIn && (
+                {canCheckIn && isCheckInAllowedNow && (
                     <AttendanceButton
                         user={user}
                         operator={operator}
