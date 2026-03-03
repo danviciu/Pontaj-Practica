@@ -16,9 +16,44 @@ const ENTITY_NAMES = [
 ];
 
 const DB_KEY = 'state:v1';
+const PASSWORD_HASH_PREFIX = 'sha256$';
+const LEGACY_BCRYPT_RE = /^\$2[aby]\$/;
+const passwordEncoder = new TextEncoder();
 
 function nowIso() {
     return new Date().toISOString();
+}
+
+function toHex(buffer) {
+    return [...new Uint8Array(buffer)].map((entry) => entry.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashPassword(password) {
+    const normalizedPassword = String(password || '');
+    const payload = `pontaj-practica:${normalizedPassword}`;
+    const digest = await crypto.subtle.digest('SHA-256', passwordEncoder.encode(payload));
+    return `${PASSWORD_HASH_PREFIX}${toHex(digest)}`;
+}
+
+async function verifyPassword(password, storedHash) {
+    const normalizedPassword = String(password || '');
+    const normalizedHash = String(storedHash || '');
+    if (!normalizedHash) return false;
+
+    if (normalizedHash.startsWith(PASSWORD_HASH_PREFIX)) {
+        const nextHash = await hashPassword(normalizedPassword);
+        return nextHash === normalizedHash;
+    }
+
+    if (LEGACY_BCRYPT_RE.test(normalizedHash)) {
+        try {
+            return await bcrypt.compare(normalizedPassword, normalizedHash);
+        } catch {
+            return false;
+        }
+    }
+
+    return normalizedPassword === normalizedHash;
 }
 
 function makeId(prefix = 'id') {
@@ -93,7 +128,7 @@ function sanitizeEntity(entityName, item) {
     return item;
 }
 
-function createDefaultState() {
+async function createDefaultState() {
     const operator = {
         id: 'op_demo_1',
         name: 'Operator Demo',
@@ -115,7 +150,7 @@ function createDefaultState() {
         operatorId: operator.id,
         isActive: true,
         created_date: nowIso(),
-        passwordHash: bcrypt.hashSync('admin123', 10),
+        passwordHash: await hashPassword('admin123'),
     };
 
     const student = {
@@ -129,7 +164,7 @@ function createDefaultState() {
         operatorId: operator.id,
         isActive: true,
         created_date: nowIso(),
-        passwordHash: bcrypt.hashSync('elev123', 10),
+        passwordHash: await hashPassword('elev123'),
     };
 
     return {
@@ -148,8 +183,8 @@ function createDefaultState() {
     };
 }
 
-function normalizeState(rawState) {
-    const fallback = createDefaultState();
+async function normalizeState(rawState) {
+    const fallback = await createDefaultState();
     const source = rawState && typeof rawState === 'object' ? rawState : fallback;
     const entities = source.entities && typeof source.entities === 'object'
         ? source.entities
@@ -161,20 +196,22 @@ function normalizeState(rawState) {
         normalizedEntities[entityName] = Array.isArray(records) ? records : [];
     });
 
-    if (!normalizedEntities.User.some((entry) => entry.role === 'admin')) {
+    if (!normalizedEntities.User.some((entry) => entry?.role === 'admin')) {
         const defaultAdmin = fallback.entities.User.find((entry) => entry.role === 'admin');
         normalizedEntities.User.unshift(defaultAdmin);
     }
 
-    normalizedEntities.User = normalizedEntities.User.map((entry) => {
-        if (!entry.passwordHash) {
-            return {
-                ...entry,
-                passwordHash: bcrypt.hashSync(entry.role === 'admin' ? 'admin123' : 'elev123', 10),
-            };
-        }
-        return entry;
-    });
+    normalizedEntities.User = await Promise.all(normalizedEntities.User.map(async (entry) => {
+        const safeEntry = entry && typeof entry === 'object' ? entry : {};
+        if (safeEntry.passwordHash) return safeEntry;
+        const fallbackPassword = safeEntry.role === 'admin' ? 'admin123' : 'elev123';
+        const passwordSource = safeEntry.password || fallbackPassword;
+        const { password, ...cleanEntry } = safeEntry;
+        return {
+            ...cleanEntry,
+            passwordHash: await hashPassword(passwordSource),
+        };
+    }));
 
     return {
         entities: normalizedEntities,
@@ -185,7 +222,7 @@ function normalizeState(rawState) {
 async function loadState(env) {
     const raw = await env.DB_KV.get(DB_KEY, 'json');
     if (!raw) {
-        const initial = createDefaultState();
+        const initial = await createDefaultState();
         await env.DB_KV.put(DB_KEY, JSON.stringify(initial));
         return initial;
     }
@@ -260,7 +297,7 @@ async function createInvitedUser(state, email, role = 'user') {
         operatorId: '',
         isActive: true,
         created_date: nowIso(),
-        passwordHash: bcrypt.hashSync(tempPassword, 10),
+        passwordHash: await hashPassword(tempPassword),
     };
 
     state.entities.User.unshift(newUser);
@@ -297,7 +334,7 @@ app.post('/api/auth/bootstrap', async (c) => {
         const created = await createInvitedUser(state, 'admin.demo@local.test', 'admin');
         adminUser = created.user;
         adminUser.full_name = 'Admin Demo';
-        adminUser.passwordHash = bcrypt.hashSync('admin123', 10);
+        adminUser.passwordHash = await hashPassword('admin123');
         await saveState(c.env, state);
     }
 
@@ -316,7 +353,7 @@ app.post('/api/auth/login', async (c) => {
         return c.json({ message: 'Email sau parola invalida.' }, 401);
     }
 
-    const isValidPassword = bcrypt.compareSync(String(body?.password || ''), user.passwordHash || '');
+    const isValidPassword = await verifyPassword(body?.password, user.passwordHash);
     if (!isValidPassword) {
         return c.json({ message: 'Email sau parola invalida.' }, 401);
     }
@@ -352,7 +389,7 @@ app.post('/api/auth/register', async (c) => {
         operatorId: '',
         isActive: true,
         created_date: nowIso(),
-        passwordHash: bcrypt.hashSync(String(body.password), 10),
+        passwordHash: await hashPassword(body.password),
     };
     state.entities.User.unshift(created);
     await saveState(c.env, state);
@@ -496,7 +533,7 @@ app.post('/api/auth/reset-password', async (c) => {
         return c.json({ message: 'Not allowed.' }, 403);
     }
 
-    targetUser.passwordHash = bcrypt.hashSync(String(body?.newPassword || 'elev123'), 10);
+    targetUser.passwordHash = await hashPassword(body?.newPassword || 'elev123');
     await saveState(c.env, state);
     return c.json({ success: true });
 });
@@ -507,11 +544,11 @@ app.post('/api/auth/change-password', async (c) => {
     if (!body?.newPassword) {
         return c.json({ message: 'New password is required.' }, 400);
     }
-    const isValidOldPassword = bcrypt.compareSync(String(body?.oldPassword || ''), authUser.passwordHash || '');
+    const isValidOldPassword = await verifyPassword(body?.oldPassword, authUser.passwordHash);
     if (!isValidOldPassword) {
         return c.json({ message: 'Parola curenta este incorecta.' }, 400);
     }
-    authUser.passwordHash = bcrypt.hashSync(String(body.newPassword), 10);
+    authUser.passwordHash = await hashPassword(body.newPassword);
     await saveState(c.env, c.get('state'));
     return c.json({ success: true });
 });
@@ -614,7 +651,10 @@ app.post('/api/entities/:entity', async (c) => {
             return c.json({ message: 'Exista deja un utilizator cu acest email.' }, 409);
         }
         created.role = created.role || 'user';
-        created.passwordHash = created.passwordHash || bcrypt.hashSync('elev123', 10);
+        if (!created.passwordHash) {
+            created.passwordHash = await hashPassword(created.password || 'elev123');
+        }
+        delete created.password;
     }
 
     store.unshift(created);
@@ -643,7 +683,7 @@ app.patch('/api/entities/:entity/:id', async (c) => {
     }
 
     if (entity === 'User' && payload.password) {
-        payload.passwordHash = bcrypt.hashSync(String(payload.password), 10);
+        payload.passwordHash = await hashPassword(payload.password);
         delete payload.password;
     }
 
@@ -687,7 +727,8 @@ app.post('/api/entities/:entity/bulkCreate', async (c) => {
 
     const body = await c.req.json();
     const items = Array.isArray(body?.items) ? body.items : [];
-    const created = items.map((item) => {
+    const created = [];
+    for (const item of items) {
         const payload = item && typeof item === 'object' ? item : {};
         const next = {
             id: makeId(entity.toLowerCase()),
@@ -697,11 +738,14 @@ app.post('/api/entities/:entity/bulkCreate', async (c) => {
         if (entity === 'User') {
             next.email = normalizeEmail(next.email);
             next.role = next.role || 'user';
-            next.passwordHash = next.passwordHash || bcrypt.hashSync('elev123', 10);
+            if (!next.passwordHash) {
+                next.passwordHash = await hashPassword(next.password || 'elev123');
+            }
+            delete next.password;
         }
         store.unshift(next);
-        return sanitizeEntity(entity, next);
-    });
+        created.push(sanitizeEntity(entity, next));
+    }
     await saveState(c.env, state);
     return c.json(created, 201);
 });
