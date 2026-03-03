@@ -1,0 +1,7 @@
+name = "pontaj-practica-api"
+main = "worker/index.js"
+compatibility_date = "2026-03-03"
+
+[[kv_namespaces]]
+binding = "DB_KV"
+id = "2c00d0baf95c462a906c0f1c91e35d29"

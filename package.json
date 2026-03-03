@@ -20,7 +20,9 @@
         "cf:whoami": "npx wrangler whoami",
         "cf:deploy": "npm run build && npx wrangler pages deploy dist --project-name pontaj-practica --branch main",
         "cf:secret:preview": "npx wrangler pages secret put",
-        "cf:secret:production": "npx wrangler pages secret put"
+        "cf:secret:production": "npx wrangler pages secret put",
+        "cf:api:deploy": "npx wrangler deploy",
+        "cf:api:logs": "npx wrangler tail"
     },
     "dependencies": {
         "@capacitor/android": "^8.1.0",
@@ -68,8 +70,10 @@
         "embla-carousel-react": "^8.5.2",
         "express": "^4.21.2",
         "framer-motion": "^11.16.4",
+        "hono": "^4.8.3",
         "html2canvas": "^1.4.1",
         "input-otp": "^1.4.2",
+        "jose": "^6.1.0",
         "jsonwebtoken": "^9.0.2",
         "jspdf": "^4.0.0",
         "lodash": "^4.17.21",
