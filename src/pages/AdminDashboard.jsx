@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, subDays } from 'date-fns';
 
 import { getDateKey } from '../components/utils/geolocation';
@@ -16,6 +16,7 @@ import AddStudentsModal from '@/components/admin/dashboard/modals/AddStudentsMod
 import CredentialsModal from '@/components/admin/dashboard/modals/CredentialsModal';
 import AttendanceDetailsModal from '@/components/admin/AttendanceDetailsModal';
 import { listAuditEvents } from '@/lib/audit-log';
+import { toast } from '@/components/ui/use-toast';
 
 const VALID_PRESENT_STATUSES = new Set(['VALIDA', 'CORECTATA_MANUAL']);
 
@@ -170,6 +171,7 @@ function getAttendanceRate(present, expected) {
 }
 
 export default function AdminDashboard() {
+    const queryClient = useQueryClient();
     const [selectedDate, setSelectedDate] = useState(getDateKey());
     const [selectedOperator, setSelectedOperator] = useState('all');
     const [selectedClass, setSelectedClass] = useState('all');
@@ -185,6 +187,7 @@ export default function AdminDashboard() {
     const [selectedValidationReason, setSelectedValidationReason] = useState('all');
     const [newStudents, setNewStudents] = useState([{ fullName: '', className: '' }]);
     const [generatedCredentials, setGeneratedCredentials] = useState([]);
+    const [isAddingStudents, setIsAddingStudents] = useState(false);
 
     const { data: operators = [] } = useQuery({
         queryKey: ['operators'],
@@ -583,28 +586,98 @@ export default function AdminDashboard() {
     };
 
     const handleAddStudents = async () => {
-        const credentials = [];
+        const studentsToAdd = newStudents
+            .map((entry) => ({
+                fullName: String(entry.fullName || '').trim(),
+                className: String(entry.className || '').trim(),
+            }))
+            .filter((entry) => entry.fullName && entry.className);
 
-        for (const student of newStudents) {
-            if (student.fullName && student.className) {
-                const username = generateUsername(student.fullName);
-                const password = generatePassword();
-                const email = `${username}@practica.local`;
-
-                credentials.push({
-                    fullName: student.fullName,
-                    className: student.className,
-                    username,
-                    password,
-                    email,
-                });
-            }
+        if (studentsToAdd.length === 0) {
+            toast({
+                title: 'Date incomplete',
+                description: 'Completeaza numele si clasa pentru cel putin un elev.',
+                variant: 'destructive',
+            });
+            return;
         }
 
-        setGeneratedCredentials(credentials);
-        setAddStudentModalOpen(false);
-        setCredentialsModalOpen(true);
-        setNewStudents([{ fullName: '', className: '' }]);
+        setIsAddingStudents(true);
+        try {
+            const existingUsernames = new Set(
+                students
+                    .map((entry) => String(entry.email || '').split('@')[0].toLowerCase())
+                    .filter(Boolean)
+            );
+
+            const credentials = [];
+            let failedCount = 0;
+
+            for (const student of studentsToAdd) {
+                let created = false;
+                for (let attempt = 0; attempt < 12 && !created; attempt += 1) {
+                    const username = generateUsername(student.fullName);
+                    if (existingUsernames.has(username)) {
+                        continue;
+                    }
+
+                    const password = generatePassword();
+                    const email = `${username}@practica.local`;
+
+                    try {
+                        await base44.entities.User.create({
+                            role: 'user',
+                            full_name: student.fullName,
+                            className: student.className,
+                            email,
+                            password,
+                            isActive: true,
+                        });
+
+                        existingUsernames.add(username);
+                        credentials.push({
+                            fullName: student.fullName,
+                            className: student.className,
+                            username,
+                            password,
+                            email,
+                        });
+                        created = true;
+                    } catch (error) {
+                        if (error?.status !== 409) {
+                            break;
+                        }
+                    }
+                }
+
+                if (!created) {
+                    failedCount += 1;
+                }
+            }
+
+            await queryClient.invalidateQueries({ queryKey: ['students'] });
+            setGeneratedCredentials(credentials);
+            setAddStudentModalOpen(false);
+            setNewStudents([{ fullName: '', className: '' }]);
+
+            if (credentials.length > 0) {
+                setCredentialsModalOpen(true);
+            }
+
+            toast({
+                title: failedCount > 0 ? 'Adaugare partiala' : 'Elevi adaugati',
+                description: `Creati: ${credentials.length}${failedCount > 0 ? ` | Esuati: ${failedCount}` : ''}`,
+                variant: failedCount > 0 ? 'destructive' : 'default',
+            });
+        } catch (error) {
+            toast({
+                title: 'Nu am putut crea elevii',
+                description: error?.message || 'A aparut o eroare la crearea conturilor.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsAddingStudents(false);
+        }
     };
 
     const handleExportCredentials = () => {
@@ -815,6 +888,7 @@ export default function AdminDashboard() {
                 newStudents={newStudents}
                 setNewStudents={setNewStudents}
                 handleAddStudents={handleAddStudents}
+                isSubmitting={isAddingStudents}
             />
 
             <CredentialsModal

@@ -2,9 +2,9 @@ import React from 'react';
 import {
     Dialog,
     DialogContent,
+    DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -16,13 +16,14 @@ export default function AddStudentsModal({
     setIsOpen,
     newStudents,
     setNewStudents,
-    handleAddStudents
+    handleAddStudents,
+    isSubmitting = false,
 }) {
     return (
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>Adaugă Elevi Noi</DialogTitle>
+                    <DialogTitle>Adauga Elevi Noi</DialogTitle>
                 </DialogHeader>
 
                 <div className="space-y-4">
@@ -32,24 +33,26 @@ export default function AddStudentsModal({
                                 <Label>Nume Complet *</Label>
                                 <Input
                                     value={student.fullName}
-                                    onChange={(e) => {
+                                    onChange={(event) => {
                                         const updated = [...newStudents];
-                                        updated[index].fullName = e.target.value;
+                                        updated[index].fullName = event.target.value;
                                         setNewStudents(updated);
                                     }}
                                     placeholder="Ex: Popescu Ion"
+                                    disabled={isSubmitting}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label>Clasă *</Label>
+                                <Label>Clasa *</Label>
                                 <Input
                                     value={student.className}
-                                    onChange={(e) => {
+                                    onChange={(event) => {
                                         const updated = [...newStudents];
-                                        updated[index].className = e.target.value;
+                                        updated[index].className = event.target.value;
                                         setNewStudents(updated);
                                     }}
                                     placeholder="Ex: 9LM"
+                                    disabled={isSubmitting}
                                 />
                             </div>
                         </div>
@@ -59,22 +62,23 @@ export default function AddStudentsModal({
                         variant="outline"
                         onClick={() => setNewStudents([...newStudents, { fullName: '', className: '' }])}
                         className="w-full"
+                        disabled={isSubmitting}
                     >
                         <UserPlus className="h-4 w-4 mr-2" />
-                        Adaugă Încă un Elev
+                        Adauga Inca un Elev
                     </Button>
                 </div>
 
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsOpen(false)}>
-                        Anulează
+                    <Button variant="outline" onClick={() => setIsOpen(false)} disabled={isSubmitting}>
+                        Anuleaza
                     </Button>
                     <Button
                         onClick={handleAddStudents}
-                        disabled={newStudents.every(s => !s.fullName || !s.className)}
+                        disabled={isSubmitting || newStudents.every((entry) => !entry.fullName || !entry.className)}
                         className="bg-blue-600 hover:bg-blue-700"
                     >
-                        Generează Credențiale
+                        {isSubmitting ? 'Se creeaza conturile...' : 'Genereaza Credentiale'}
                     </Button>
                 </DialogFooter>
             </DialogContent>

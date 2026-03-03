@@ -514,10 +514,13 @@ export default function StudentsManagement() {
           continue;
         }
 
+        let generatedPassword = '';
         if (!prepared.email && importOptions.generateCredentials) {
           const username = generateUsername(prepared.full_name, reservedUsernames);
           const password = generatePassword();
+          generatedPassword = password;
           prepared.email = `${username}@practica.local`;
+          prepared.password = password;
           report.credentials.push({
             fullName: prepared.full_name,
             className: prepared.className || importOptions.defaultClassName || '-',
@@ -537,7 +540,9 @@ export default function StudentsManagement() {
             await callWithRetry(() => base44.entities.User.update(existing.id, prepared), 2);
             report.updated += 1;
           } else {
-            if (prepared.email) {
+            if (generatedPassword) {
+              await callWithRetry(() => base44.entities.User.create(prepared), 2);
+            } else if (prepared.email) {
               try {
                 const invited = await callWithRetry(() => base44.users.inviteUser(prepared.email, 'user'), 2);
                 if (invited?.id) {
