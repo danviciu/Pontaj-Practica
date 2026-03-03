@@ -16,7 +16,11 @@
         "cap:sync": "npx cap sync",
         "cap:android": "npx cap open android",
         "build:apk:debug": "npm run build && npx cap sync android && cd android && gradlew.bat assembleDebug",
-        "build:apk:release": "npm run build && npx cap sync android && cd android && gradlew.bat assembleRelease"
+        "build:apk:release": "npm run build && npx cap sync android && cd android && gradlew.bat assembleRelease",
+        "cf:whoami": "npx wrangler whoami",
+        "cf:deploy": "npm run build && npx wrangler pages deploy dist --project-name pontaj-practica --branch main",
+        "cf:secret:preview": "npx wrangler pages secret put",
+        "cf:secret:production": "npx wrangler pages secret put"
     },
     "dependencies": {
         "@capacitor/android": "^8.1.0",
@@ -111,6 +115,7 @@
         "postcss": "^8.5.3",
         "tailwindcss": "^3.4.17",
         "typescript": "^5.8.2",
-        "vite": "^6.1.0"
+        "vite": "^6.1.0",
+        "wrangler": "^4.69.0"
     }
 }
