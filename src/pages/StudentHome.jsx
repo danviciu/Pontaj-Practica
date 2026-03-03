@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { MapPin, Building2, Calendar, Navigation, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import AttendanceButton from '@/components/attendance/AttendanceButton';
 import StatusIndicator from '@/components/attendance/StatusIndicator';
 import { getDateKey } from '../components/utils/geolocation';
@@ -41,6 +42,9 @@ export default function StudentHome() {
     const [refreshKey, setRefreshKey] = useState(0);
     const [isLoadingUser, setIsLoadingUser] = useState(true);
     const [userLoadError, setUserLoadError] = useState('');
+    const [absenceReason, setAbsenceReason] = useState('');
+    const [isSubmittingAbsence, setIsSubmittingAbsence] = useState(false);
+    const [hasSubmittedAbsenceToday, setHasSubmittedAbsenceToday] = useState(false);
 
     useEffect(() => {
         async function loadUser() {
@@ -136,6 +140,16 @@ export default function StudentHome() {
         todayRecord?.validationMessage ||
         (todayRecord ? 'Prezenta a fost inregistrata.' : 'Nu exista pontaj pentru azi.');
     const canCheckIn = !todayRecord;
+    const todayDateKey = getDateKey();
+
+    useEffect(() => {
+        if (!user?.id || typeof window === 'undefined') {
+            setHasSubmittedAbsenceToday(false);
+            return;
+        }
+        const noteKey = `absence.note.${user.id}.${todayDateKey}`;
+        setHasSubmittedAbsenceToday(window.localStorage.getItem(noteKey) === '1');
+    }, [user?.id, todayDateKey]);
 
     const attendanceWindow = useMemo(() => {
         if (!user || !operator) return null;
@@ -204,6 +218,63 @@ export default function StudentHome() {
 
     if (!user) {
         return null;
+    }
+
+    async function handleSubmitAbsenceReason() {
+        const normalizedReason = String(absenceReason || '').trim();
+        if (normalizedReason.length < 5) {
+            toast({
+                title: 'Explicatie prea scurta',
+                description: 'Scrie minim 5 caractere.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (!user?.id) return;
+
+        setIsSubmittingAbsence(true);
+        try {
+            await base44.entities.AuditLog.create({
+                timestamp: new Date().toISOString(),
+                action: 'STUDENT_ABSENCE_NOTE',
+                entityType: 'Attendance',
+                entityId: user.id,
+                actorName: user.full_name || 'Elev',
+                actorEmail: user.email || '',
+                details: `Elevul a transmis explicatie absenta pentru ${todayDateKey}: ${normalizedReason}`,
+                metadata: {
+                    dateKey: todayDateKey,
+                    studentUserId: user.id,
+                    studentName: user.full_name || '',
+                    className: user.className || '',
+                    operatorId: operator?.id || '',
+                    operatorName: operator?.name || '',
+                    reason: normalizedReason,
+                    source: 'StudentHome',
+                },
+            });
+
+            if (typeof window !== 'undefined') {
+                const noteKey = `absence.note.${user.id}.${todayDateKey}`;
+                window.localStorage.setItem(noteKey, '1');
+            }
+
+            setAbsenceReason('');
+            setHasSubmittedAbsenceToday(true);
+            toast({
+                title: 'Explicatie trimisa',
+                description: 'Mesajul tau a fost trimis catre admin.',
+            });
+        } catch (error) {
+            toast({
+                title: 'Nu am putut trimite explicatia',
+                description: error?.message || 'Incearca din nou.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSubmittingAbsence(false);
+        }
     }
 
     return (
@@ -311,6 +382,34 @@ export default function StudentHome() {
                         onSuccess={() => setRefreshKey((k) => k + 1)}
                     />
                 )}
+
+                <Card className="shadow-md border-slate-200">
+                    <CardHeader>
+                        <CardTitle className="text-base">Nu poti ajunge la practica?</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        <Textarea
+                            value={absenceReason}
+                            onChange={(event) => setAbsenceReason(event.target.value)}
+                            placeholder="Scrie pe scurt motivul (ex: problema medicala, urgenta familiala, etc.)"
+                            rows={4}
+                            disabled={isSubmittingAbsence || hasSubmittedAbsenceToday}
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs text-gray-500">
+                                {hasSubmittedAbsenceToday
+                                    ? 'Ai trimis deja o explicatie pentru azi.'
+                                    : 'Mesajul va fi vizibil in jurnalul admin.'}
+                            </p>
+                            <Button
+                                onClick={handleSubmitAbsenceReason}
+                                disabled={isSubmittingAbsence || hasSubmittedAbsenceToday || String(absenceReason || '').trim().length < 5}
+                            >
+                                {isSubmittingAbsence ? 'Se trimite...' : 'Trimite explicatie'}
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
 
                 <Card className="shadow-md">
                     <CardHeader>

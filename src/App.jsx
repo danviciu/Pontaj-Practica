@@ -12,6 +12,23 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
+const ADMIN_ONLY_PAGES = new Set([
+    'AdminDashboard',
+    'OperatorsManagement',
+    'ClassManagement',
+    'StudentsManagement',
+    'PracticeSchedulesManagement',
+    'PracticePeriodsManagement',
+    'ScheduleManagement',
+    'ClassPracticePlansManagement',
+    'OperatorStudentsList',
+]);
+
+function canAccessPage(pageName, user) {
+    if (pageName === 'Login') return true;
+    if (user?.role === 'admin') return true;
+    return !ADMIN_ONLY_PAGES.has(pageName);
+}
 
 const LayoutWrapper = ({ children, currentPageName }) => Layout ?
     <Layout currentPageName={currentPageName}>{children}</Layout>
@@ -20,7 +37,9 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
 const AuthenticatedApp = () => {
     const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
     const LoginPage = Pages.Login || null;
-    const landingPageKey = user?.role === 'admin' && Pages.AdminDashboard ? 'AdminDashboard' : mainPageKey;
+    const landingPageKey = user?.role === 'admin'
+        ? (Pages.AdminDashboard ? 'AdminDashboard' : mainPageKey)
+        : (Pages.StudentHome ? 'StudentHome' : mainPageKey);
     const LandingPage = Pages[landingPageKey] || MainPage;
 
     // Show loading spinner while checking app public settings or auth
@@ -102,9 +121,13 @@ const AuthenticatedApp = () => {
                         key={path}
                         path={`/${path}`}
                         element={
-                            <LayoutWrapper currentPageName={path}>
-                                <Page />
-                            </LayoutWrapper>
+                            canAccessPage(path, user)
+                                ? (
+                                    <LayoutWrapper currentPageName={path}>
+                                        <Page />
+                                    </LayoutWrapper>
+                                )
+                                : <Navigate to="/" replace />
                         }
                     />
                         )
