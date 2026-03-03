@@ -1,0 +1,39 @@
+{
+    "name": "ClassPracticePlan",
+    "type": "object",
+    "properties": {
+        "className": {
+            "type": "string",
+            "description": "Numele clasei (ex: 9LM, 10A)"
+        },
+        "scheduleId": {
+            "type": "string",
+            "description": "ID-ul programului de practic\u0103 (PracticeSchedule)"
+        },
+        "scheduleName": {
+            "type": "string",
+            "description": "Numele programului (denormalizat)"
+        },
+        "validFrom": {
+            "type": "string",
+            "format": "date",
+            "description": "Data de la care planul este activ"
+        },
+        "validTo": {
+            "type": "string",
+            "format": "date",
+            "description": "Data p\u00e2n\u0103 la care planul este activ"
+        },
+        "priority": {
+            "type": "number",
+            "default": 10,
+            "description": "Prioritatea planului (valoare mai mare = prioritate mai \u00eenalt\u0103)"
+        }
+    },
+    "required": [
+        "className",
+        "scheduleId",
+        "validFrom",
+        "validTo"
+    ]
+}

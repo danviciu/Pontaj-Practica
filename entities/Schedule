@@ -1,0 +1,53 @@
+{
+    "name": "Schedule",
+    "type": "object",
+    "properties": {
+        "operatorId": {
+            "type": "string",
+            "description": "ID-ul operatorului economic"
+        },
+        "operatorName": {
+            "type": "string",
+            "description": "Numele operatorului (denormalizat)"
+        },
+        "className": {
+            "type": "string",
+            "description": "Clasa pentru care se aplic\u0103 programul (op\u021bional - dac\u0103 lipse\u0219te, se aplic\u0103 tuturor)"
+        },
+        "daysOfWeek": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "monday",
+                    "tuesday",
+                    "wednesday",
+                    "thursday",
+                    "friday",
+                    "saturday",
+                    "sunday"
+                ]
+            },
+            "description": "Zilele s\u0103pt\u0103m\u00e2nii c\u00e2nd se poate pune prezen\u021ba"
+        },
+        "startTime": {
+            "type": "string",
+            "description": "Ora de \u00eenceput (format HH:mm, ex: 08:00)"
+        },
+        "endTime": {
+            "type": "string",
+            "description": "Ora de final (format HH:mm, ex: 16:00)"
+        },
+        "isActive": {
+            "type": "boolean",
+            "default": true,
+            "description": "Program activ sau nu"
+        }
+    },
+    "required": [
+        "operatorId",
+        "daysOfWeek",
+        "startTime",
+        "endTime"
+    ]
+}

@@ -1,0 +1,43 @@
+{
+    "name": "AuditLog",
+    "type": "object",
+    "properties": {
+        "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Momentul inregistrarii evenimentului"
+        },
+        "action": {
+            "type": "string",
+            "description": "Tipul actiunii (ex: STUDENT_CREATE, CLASS_DELETE)"
+        },
+        "entityType": {
+            "type": "string",
+            "description": "Tipul entitatii afectate"
+        },
+        "entityId": {
+            "type": "string",
+            "description": "ID-ul entitatii afectate"
+        },
+        "actorName": {
+            "type": "string",
+            "description": "Numele utilizatorului care a initiat actiunea"
+        },
+        "actorEmail": {
+            "type": "string",
+            "description": "Email-ul utilizatorului care a initiat actiunea"
+        },
+        "details": {
+            "type": "string",
+            "description": "Descriere umana a evenimentului"
+        },
+        "metadata": {
+            "type": "object",
+            "description": "Date suplimentare optionale despre eveniment"
+        }
+    },
+    "required": [
+        "action",
+        "entityType"
+    ]
+}

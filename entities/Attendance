@@ -1,0 +1,107 @@
+{
+    "name": "Attendance",
+    "type": "object",
+    "properties": {
+        "studentUserId": {
+            "type": "string",
+            "description": "ID-ul utilizatorului student"
+        },
+        "studentName": {
+            "type": "string",
+            "description": "Numele studentului (denormalizat)"
+        },
+        "className": {
+            "type": "string",
+            "description": "Clasa studentului"
+        },
+        "operatorId": {
+            "type": "string",
+            "description": "ID-ul operatorului economic"
+        },
+        "operatorName": {
+            "type": "string",
+            "description": "Numele operatorului (denormalizat)"
+        },
+        "dateKey": {
+            "type": "string",
+            "description": "Data \u00een format YYYY-MM-DD"
+        },
+        "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Data \u0219i ora exact\u0103 c\u00e2nd a fost pus\u0103 prezen\u021ba"
+        },
+        "lat": {
+            "type": "number",
+            "description": "Latitudine de unde a fost pus\u0103 prezen\u021ba"
+        },
+        "lng": {
+            "type": "number",
+            "description": "Longitudine de unde a fost pus\u0103 prezen\u021ba"
+        },
+        "accuracyMeters": {
+            "type": "number",
+            "description": "Acurate\u021bea GPS \u00een metri"
+        },
+        "distanceMeters": {
+            "type": "number",
+            "description": "Distan\u021ba \u00een metri de la operator"
+        },
+        "allowedRadiusMeters": {
+            "type": "number",
+            "description": "Raza permis\u0103 aplicat\u0103 la validare"
+        },
+        "checkinWindowStart": {
+            "type": "string",
+            "description": "Ora de \u00eenceput a ferestrei de pontaj (HH:mm)"
+        },
+        "checkinWindowEnd": {
+            "type": "string",
+            "description": "Ora de final a ferestrei de pontaj (HH:mm)"
+        },
+        "validationStatus": {
+            "type": "string",
+            "default": "VALIDA",
+            "description": "Status validare: VALIDA, INVALIDA, IN_ASTEPTARE, CORECTATA_MANUAL"
+        },
+        "validationReason": {
+            "type": "string",
+            "default": "OK",
+            "description": "Motiv validare: OK, IN_AFARA_RAZEI, IN_AFARA_INTERVALULUI, GPS_SLAB, DUPLICAT_ZI, ELEV_INACTIV, FARA_OPERATOR, APROBAT_ADMIN, RESPINS_ADMIN"
+        },
+        "validationMessage": {
+            "type": "string",
+            "description": "Mesaj explicit pentru UI cu explica\u021bia valid\u0103rii"
+        },
+        "requiresReview": {
+            "type": "boolean",
+            "default": false,
+            "description": "Marcheaz\u0103 dac\u0103 pontajul necesit\u0103 revizuire manual\u0103"
+        },
+        "reviewedBy": {
+            "type": "string",
+            "description": "ID utilizator care a revizuit manual pontajul"
+        },
+        "reviewedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Momentul revizuirii manuale"
+        },
+        "reviewNote": {
+            "type": "string",
+            "description": "Not\u0103 administrativ\u0103 pentru revizuire manual\u0103"
+        },
+        "status": {
+            "type": "string",
+            "default": "present",
+            "description": "Status prezen\u021b\u0103"
+        }
+    },
+    "required": [
+        "studentUserId",
+        "dateKey",
+        "timestamp",
+        "lat",
+        "lng"
+    ]
+}

@@ -1,0 +1,37 @@
+{
+    "name": "Operator",
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "Numele operatorului economic"
+        },
+        "address": {
+            "type": "string",
+            "description": "Adresa operatorului economic"
+        },
+        "lat": {
+            "type": "number",
+            "description": "Latitudine"
+        },
+        "lng": {
+            "type": "number",
+            "description": "Longitudine"
+        },
+        "radiusMeters": {
+            "type": "number",
+            "default": 200,
+            "description": "Raza \u00een metri \u00een care elevul poate pune prezen\u021ba"
+        },
+        "isActive": {
+            "type": "boolean",
+            "default": true,
+            "description": "Operator activ sau nu"
+        }
+    },
+    "required": [
+        "name",
+        "lat",
+        "lng"
+    ]
+}

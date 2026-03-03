@@ -1,0 +1,4 @@
+storeFile=keys/pontaj-release.jks
+storePassword=CHANGE_ME
+keyAlias=pontajrelease
+keyPassword=CHANGE_ME

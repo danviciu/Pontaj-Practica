@@ -1,0 +1,26 @@
+{
+    "name": "Classroom",
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "Numele clasei (ex: 10A)"
+        },
+        "specialization": {
+            "type": "string",
+            "description": "Specializarea implicita a clasei"
+        },
+        "defaultOperatorId": {
+            "type": "string",
+            "description": "Operator implicit recomandat pentru elevii clasei"
+        },
+        "isActive": {
+            "type": "boolean",
+            "default": true,
+            "description": "Clasa este activa sau arhivata"
+        }
+    },
+    "required": [
+        "name"
+    ]
+}

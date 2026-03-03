@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pontaj Practica</string>
+    <string name="title_activity_main">Pontaj Practica</string>
+    <string name="package_name">ro.pontaj.practica</string>
+    <string name="custom_url_scheme">ro.pontaj.practica</string>
+</resources>

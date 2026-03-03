@@ -1,0 +1,80 @@
+{
+    "name": "PracticeSchedule",
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "Numele programului (ex: Program Normal, Program Comasat)"
+        },
+        "scheduleType": {
+            "type": "string",
+            "enum": [
+                "weekly"
+            ],
+            "default": "weekly",
+            "description": "Tipul programului"
+        },
+        "daysOfWeek": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "monday",
+                    "tuesday",
+                    "wednesday",
+                    "thursday",
+                    "friday",
+                    "saturday",
+                    "sunday"
+                ]
+            },
+            "description": "Zilele s\u0103pt\u0103m\u00e2nii c\u00e2nd se \u021bine practica"
+        },
+        "checkinStartTime": {
+            "type": "string",
+            "description": "Ora de \u00eenceput pentru pontaj (HH:mm, ex: 07:30)"
+        },
+        "checkinEndTime": {
+            "type": "string",
+            "description": "Ora de final pentru pontaj (HH:mm, ex: 09:00)"
+        },
+        "validFrom": {
+            "type": "string",
+            "format": "date",
+            "description": "Data de la care este valabil programul"
+        },
+        "validTo": {
+            "type": "string",
+            "format": "date",
+            "description": "Data p\u00e2n\u0103 la care este valabil programul"
+        },
+        "className": {
+            "type": "string",
+            "description": "Clasa asociata programului (optional)"
+        },
+        "operatorId": {
+            "type": "string",
+            "description": "Operatorul asociat programului (optional)"
+        },
+        "studentUserIds": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Lista elevilor asociati explicit programului (optional)"
+        },
+        "isActive": {
+            "type": "boolean",
+            "default": true,
+            "description": "Program activ sau nu"
+        }
+    },
+    "required": [
+        "name",
+        "daysOfWeek",
+        "checkinStartTime",
+        "checkinEndTime",
+        "validFrom",
+        "validTo"
+    ]
+}
