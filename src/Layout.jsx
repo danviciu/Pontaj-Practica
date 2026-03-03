@@ -2,12 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
-import { LayoutDashboard, Building2, Users, Home, Menu, X, Calendar } from 'lucide-react';
+import { LayoutDashboard, Building2, Users, Home, Menu, X, Calendar, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { toast } from '@/components/ui/use-toast';
 
 export default function Layout({ children, currentPageName }) {
     const [user, setUser] = useState(null);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+    const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+    const [passwordForm, setPasswordForm] = useState({
+        oldPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+    });
 
     useEffect(() => {
         async function loadUser() {
@@ -34,6 +45,65 @@ export default function Layout({ children, currentPageName }) {
     const studentLinks = [{ name: 'Acasă', path: 'StudentHome', icon: Home }];
 
     const links = isAdmin ? adminLinks : studentLinks;
+
+    function closePasswordDialog() {
+        setPasswordDialogOpen(false);
+        setPasswordForm({
+            oldPassword: '',
+            newPassword: '',
+            confirmPassword: '',
+        });
+        setIsUpdatingPassword(false);
+    }
+
+    async function handleChangePassword() {
+        if (!passwordForm.oldPassword || !passwordForm.newPassword) {
+            toast({
+                title: 'Date incomplete',
+                description: 'Completeaza parola curenta si parola noua.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (passwordForm.newPassword.length < 8) {
+            toast({
+                title: 'Parola prea scurta',
+                description: 'Parola noua trebuie sa aiba cel putin 8 caractere.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+            toast({
+                title: 'Parole diferite',
+                description: 'Confirmarea parolei noi nu corespunde.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsUpdatingPassword(true);
+        try {
+            await base44.auth.changePassword({
+                oldPassword: passwordForm.oldPassword,
+                newPassword: passwordForm.newPassword,
+            });
+            toast({
+                title: 'Parola actualizata',
+                description: 'Parola a fost schimbata cu succes.',
+            });
+            closePasswordDialog();
+        } catch (error) {
+            toast({
+                title: 'Nu am putut schimba parola',
+                description: error?.message || 'A aparut o eroare la schimbarea parolei.',
+                variant: 'destructive',
+            });
+            setIsUpdatingPassword(false);
+        }
+    }
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -109,6 +179,15 @@ export default function Layout({ children, currentPageName }) {
                         <Button
                             variant="outline"
                             size="sm"
+                            className="w-full mb-2"
+                            onClick={() => setPasswordDialogOpen(true)}
+                        >
+                            <KeyRound className="h-4 w-4 mr-2" />
+                            Schimba parola
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => base44.auth.logout()}
                             className="w-full"
                         >
@@ -161,6 +240,18 @@ export default function Layout({ children, currentPageName }) {
                             <Button
                                 variant="outline"
                                 size="sm"
+                                className="w-full mb-2"
+                                onClick={() => {
+                                    setMobileMenuOpen(false);
+                                    setPasswordDialogOpen(true);
+                                }}
+                            >
+                                <KeyRound className="h-4 w-4 mr-2" />
+                                Schimba parola
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
                                 onClick={() => base44.auth.logout()}
                                 className="w-full"
                             >
@@ -175,6 +266,59 @@ export default function Layout({ children, currentPageName }) {
             <div className="md:ml-64 pt-16 md:pt-0">
                 {children}
             </div>
+
+            <Dialog open={passwordDialogOpen} onOpenChange={(open) => (open ? setPasswordDialogOpen(true) : closePasswordDialog())}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Schimba parola</DialogTitle>
+                        <DialogDescription>
+                            Aceasta modificare se aplica pentru contul conectat ({user?.email || 'utilizator curent'}).
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="currentPassword">Parola curenta</Label>
+                            <Input
+                                id="currentPassword"
+                                type="password"
+                                value={passwordForm.oldPassword}
+                                onChange={(event) => setPasswordForm((prev) => ({ ...prev, oldPassword: event.target.value }))}
+                                autoComplete="current-password"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="newPassword">Parola noua</Label>
+                            <Input
+                                id="newPassword"
+                                type="password"
+                                value={passwordForm.newPassword}
+                                onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
+                                autoComplete="new-password"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="confirmNewPassword">Confirma parola noua</Label>
+                            <Input
+                                id="confirmNewPassword"
+                                type="password"
+                                value={passwordForm.confirmPassword}
+                                onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+                                autoComplete="new-password"
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closePasswordDialog} disabled={isUpdatingPassword}>
+                            Renunta
+                        </Button>
+                        <Button onClick={handleChangePassword} disabled={isUpdatingPassword}>
+                            {isUpdatingPassword ? 'Se actualizeaza...' : 'Salveaza parola'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
