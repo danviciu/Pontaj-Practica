@@ -84,13 +84,6 @@ export default function Login() {
                         <Button type="submit" className="w-full" disabled={isSubmitting}>
                             {isSubmitting ? 'Se autentifica...' : 'Intra in aplicatie'}
                         </Button>
-                        <div className="text-xs text-slate-500 rounded-md bg-slate-100 p-3">
-                            Demo rapid:
-                            <br />
-                            admin: `admin.demo@local.test` / `admin123`
-                            <br />
-                            elev: `elev.demo@local.test` / `elev123`
-                        </div>
                     </form>
                 </CardContent>
             </Card>

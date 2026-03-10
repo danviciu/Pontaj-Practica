@@ -29,6 +29,7 @@ Servicii:
 
 Conturi seed:
 - admin: `admin.demo@local.test` / `admin123`
+- admin 2: `admin2.demo@local.test` / `admin123`
 - elev: `elev.demo@local.test` / `elev123`
 
 ## 2. Variabile de mediu

@@ -127,6 +127,19 @@ function createDefaultState() {
         passwordHash: bcrypt.hashSync('admin123', 10),
     };
 
+    const secondAdmin = {
+        id: 'admin_demo_2',
+        role: 'admin',
+        full_name: 'Admin Demo 2',
+        email: 'admin2.demo@local.test',
+        className: '12B',
+        specialization: 'Coordonare',
+        operatorId: operator.id,
+        isActive: true,
+        created_date: nowIso(),
+        passwordHash: bcrypt.hashSync('admin123', 10),
+    };
+
     const student = {
         id: 'user_demo_1',
         role: 'user',
@@ -143,7 +156,7 @@ function createDefaultState() {
 
     return {
         entities: {
-            User: [admin, student],
+            User: [admin, secondAdmin, student],
             Operator: [operator],
             Attendance: [],
             PracticeSchedule: [],
@@ -179,10 +192,32 @@ function normalizeState(rawState) {
         normalizedEntities[entityName] = Array.isArray(records) ? records : [];
     });
 
-    // Ensure at least one admin account exists.
-    if (!normalizedEntities.User.some((entry) => entry.role === 'admin')) {
+    // Ensure required demo accounts exist in persisted snapshots.
+    const requiredDemoAccounts = [
+        'admin.demo@local.test',
+        'admin2.demo@local.test',
+        'elev.demo@local.test',
+    ];
+    requiredDemoAccounts.forEach((demoEmail) => {
+        const hasUser = normalizedEntities.User.some(
+            (entry) => normalizeEmail(entry.email) === demoEmail
+        );
+        if (hasUser) return;
+
+        const fallbackUser = fallback.entities.User.find(
+            (entry) => normalizeEmail(entry.email) === demoEmail
+        );
+        if (fallbackUser) {
+            normalizedEntities.User.unshift(fallbackUser);
+        }
+    });
+
+    // Keep a safety net if all admins were deleted manually.
+    if (!normalizedEntities.User.some((entry) => entry.role === 'admin' && entry.isActive !== false)) {
         const defaultAdmin = fallback.entities.User.find((entry) => entry.role === 'admin');
-        normalizedEntities.User.unshift(defaultAdmin);
+        if (defaultAdmin) {
+            normalizedEntities.User.unshift(defaultAdmin);
+        }
     }
 
     // Backfill hashes for older data snapshots.
