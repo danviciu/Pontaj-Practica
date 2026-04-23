@@ -2,16 +2,47 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
-import { LayoutDashboard, Building2, Users, Home, Menu, X, Calendar, KeyRound } from 'lucide-react';
+import { LayoutDashboard, Home, Menu, X, Calendar, KeyRound, Shield, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
 
+const ADMIN_NAV_ITEMS = [
+    { type: 'link', name: 'Dashboard', path: 'AdminDashboard', icon: LayoutDashboard },
+    {
+        type: 'group',
+        id: 'practica',
+        name: 'Practica',
+        icon: Calendar,
+        links: [
+            { name: 'Clase si planuri', path: 'ClassManagement' },
+            { name: 'Toti elevii', path: 'StudentsManagement' },
+            { name: 'Programe', path: 'PracticeSchedulesManagement' },
+        ],
+    },
+    {
+        type: 'group',
+        id: 'organizatie',
+        name: 'Organizatie',
+        icon: Shield,
+        links: [
+            { name: 'Administratori', path: 'AdminsManagement' },
+            { name: 'Operatori', path: 'OperatorsManagement' },
+        ],
+    },
+];
+
+const STUDENT_NAV_ITEMS = [{ type: 'link', name: 'Acasa', path: 'StudentHome', icon: Home }];
+
 export default function Layout({ children, currentPageName }) {
     const [user, setUser] = useState(null);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [openGroups, setOpenGroups] = useState({
+        practica: true,
+        organizatie: true,
+    });
     const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
     const [passwordForm, setPasswordForm] = useState({
@@ -33,18 +64,28 @@ export default function Layout({ children, currentPageName }) {
     }, []);
 
     const isAdmin = user?.role === 'admin';
+    const links = isAdmin ? ADMIN_NAV_ITEMS : STUDENT_NAV_ITEMS;
 
-    const adminLinks = [
-        { name: 'Dashboard', path: 'AdminDashboard', icon: LayoutDashboard },
-        { name: 'Operatori', path: 'OperatorsManagement', icon: Building2 },
-        { name: 'Gestionare Clase', path: 'ClassManagement', icon: Users },
-        { name: 'Toți Elevii', path: 'StudentsManagement', icon: Users },
-        { name: 'Programe Practică', path: 'PracticeSchedulesManagement', icon: Calendar },
-    ];
+    useEffect(() => {
+        if (!isAdmin) return;
 
-    const studentLinks = [{ name: 'Acasă', path: 'StudentHome', icon: Home }];
+        const activeGroup = ADMIN_NAV_ITEMS.find((item) => (
+            item.type === 'group' && item.links.some((entry) => entry.path === currentPageName)
+        ));
+        if (!activeGroup) return;
 
-    const links = isAdmin ? adminLinks : studentLinks;
+        setOpenGroups((prev) => ({
+            ...prev,
+            [activeGroup.id]: true,
+        }));
+    }, [isAdmin, currentPageName]);
+
+    function toggleGroup(groupId) {
+        setOpenGroups((prev) => ({
+            ...prev,
+            [groupId]: !prev[groupId],
+        }));
+    }
 
     function closePasswordDialog() {
         setPasswordDialogOpen(false);
@@ -105,6 +146,74 @@ export default function Layout({ children, currentPageName }) {
         }
     }
 
+    function renderMenuItem(item, { mobile = false } = {}) {
+        if (item.type !== 'group') {
+            const Icon = item.icon;
+            const isActive = currentPageName === item.path;
+
+            return (
+                <li key={item.path}>
+                    <Link
+                        to={createPageUrl(item.path)}
+                        onClick={mobile ? () => setMobileMenuOpen(false) : undefined}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
+                            ? 'bg-blue-50 text-blue-600 font-semibold'
+                            : 'text-gray-600 hover:bg-gray-50'
+                            }`}
+                    >
+                        <Icon className="h-5 w-5" />
+                        <span>{item.name}</span>
+                    </Link>
+                </li>
+            );
+        }
+
+        const Icon = item.icon;
+        const isOpen = Boolean(openGroups[item.id]);
+        const hasActiveChild = item.links.some((entry) => entry.path === currentPageName);
+
+        return (
+            <li key={item.id} className="space-y-1">
+                <button
+                    type="button"
+                    onClick={() => toggleGroup(item.id)}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-colors ${hasActiveChild
+                        ? 'bg-blue-50 text-blue-600'
+                        : 'text-gray-600 hover:bg-gray-50'
+                        }`}
+                >
+                    <span className="flex items-center gap-3">
+                        <Icon className="h-5 w-5" />
+                        <span className="font-medium">{item.name}</span>
+                    </span>
+                    <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isOpen && (
+                    <ul className="space-y-1 pl-6">
+                        {item.links.map((entry) => {
+                            const isActiveChild = currentPageName === entry.path;
+                            return (
+                                <li key={entry.path}>
+                                    <Link
+                                        to={createPageUrl(entry.path)}
+                                        onClick={mobile ? () => setMobileMenuOpen(false) : undefined}
+                                        className={`block px-4 py-2 rounded-md text-sm transition-colors ${isActiveChild
+                                            ? 'bg-blue-100 text-blue-700 font-semibold'
+                                            : 'text-gray-600 hover:bg-gray-50'
+                                            }`}
+                                    >
+                                        {entry.name}
+                                    </Link>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+            </li>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gray-50">
             {/* Mobile Header */}
@@ -142,24 +251,7 @@ export default function Layout({ children, currentPageName }) {
 
                 <nav className="flex-1 p-4">
                     <ul className="space-y-2">
-                        {links.map((link) => {
-                            const Icon = link.icon;
-                            const isActive = currentPageName === link.path;
-                            return (
-                                <li key={link.path}>
-                                    <Link
-                                        to={createPageUrl(link.path)}
-                                        className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
-                                                ? 'bg-blue-50 text-blue-600 font-semibold'
-                                                : 'text-gray-600 hover:bg-gray-50'
-                                            }`}
-                                    >
-                                        <Icon className="h-5 w-5" />
-                                        <span>{link.name}</span>
-                                    </Link>
-                                </li>
-                            );
-                        })}
+                        {links.map((link) => renderMenuItem(link))}
                     </ul>
                 </nav>
 
@@ -202,25 +294,7 @@ export default function Layout({ children, currentPageName }) {
                 <div className="md:hidden fixed inset-0 bg-white z-40 pt-16">
                     <nav className="p-4">
                         <ul className="space-y-2">
-                            {links.map((link) => {
-                                const Icon = link.icon;
-                                const isActive = currentPageName === link.path;
-                                return (
-                                    <li key={link.path}>
-                                        <Link
-                                            to={createPageUrl(link.path)}
-                                            onClick={() => setMobileMenuOpen(false)}
-                                            className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
-                                                    ? 'bg-blue-50 text-blue-600 font-semibold'
-                                                    : 'text-gray-600 hover:bg-gray-50'
-                                                }`}
-                                        >
-                                            <Icon className="h-5 w-5" />
-                                            <span>{link.name}</span>
-                                        </Link>
-                                    </li>
-                                );
-                            })}
+                            {links.map((link) => renderMenuItem(link, { mobile: true }))}
                         </ul>
                     </nav>
 
