@@ -127,10 +127,6 @@ function getStudentsForSchedule(schedule, students) {
     ));
 }
 
-function csvEscape(value) {
-    return `"${String(value ?? '').replace(/"/g, '""')}"`;
-}
-
 function sanitizeFilePart(value) {
     return String(value || 'program')
         .toLowerCase()
@@ -392,30 +388,74 @@ export default function PracticeSchedulesManagement() {
         };
     }
 
-    function exportScheduleReportCsv(report) {
+    async function exportScheduleReportExcel(report) {
         if (!report) return;
 
-        const headers = [
-            'Program',
-            'Perioada start',
-            'Perioada final',
-            'Data',
-            'Elev',
-            'Clasa',
-            'Operator',
-            'Status',
-            'Motiv',
-            'Mesaj',
-            'Ora pontaj',
+        const xlsxModule = await import('xlsx');
+        const XLSX = xlsxModule.default || xlsxModule;
+
+        const workbook = XLSX.utils.book_new();
+        const periodLabel = `${report.schedule?.validFrom || '-'} - ${report.schedule?.validTo || '-'}`;
+
+        const summaryRows = [
+            ['Raport prezenta practica'],
+            ['Program', report.schedule?.name || '-'],
+            ['Perioada', periodLabel],
+            [],
+            ['Elev', 'Clasa', 'Operator', 'Zile', 'Prezente', 'Absente motivate', 'Absente', 'In asteptare', 'Nepontat', 'Rata prezenta (%)'],
+            ...report.studentRows.map((row) => {
+                const operatorName = operatorsById.get(row.student.operatorId || report.schedule.operatorId)?.name || '';
+                return [
+                    row.student.full_name || '',
+                    row.student.className || '',
+                    operatorName,
+                    row.expectedDays,
+                    row.statusCounts.PREZENT,
+                    row.statusCounts.ABSENT_MOTIVAT,
+                    row.statusCounts.ABSENT,
+                    row.statusCounts.IN_ASTEPTARE,
+                    row.statusCounts.NEPONTAT,
+                    Number(row.presenceRate.toFixed(2)),
+                ];
+            }),
+            [],
+            ['TOTAL', '', '', report.summary.expected, report.summary.present, report.summary.justifiedAbsent, report.summary.absent, report.summary.pending, report.summary.notMarked, report.summary.expected > 0 ? Number(((report.summary.present / report.summary.expected) * 100).toFixed(2)) : 0],
         ];
 
-        const rows = [];
+        const matrixHeaderDates = report.dateKeys.map((dateKey) => {
+            const dateValue = new Date(`${dateKey}T00:00:00`);
+            return Number.isNaN(dateValue.getTime())
+                ? dateKey
+                : format(dateValue, 'dd.MM (EEE)', { locale: ro });
+        });
+
+        const matrixRows = [
+            ['Elev', 'Clasa', 'Operator', ...matrixHeaderDates, 'P', 'AM', 'A', 'IP', 'N'],
+            ...report.studentRows.map((row) => {
+                const operatorName = operatorsById.get(row.student.operatorId || report.schedule.operatorId)?.name || '';
+                return [
+                    row.student.full_name || '',
+                    row.student.className || '',
+                    operatorName,
+                    ...row.entries.map((entry) => getStatusMeta(entry.statusCode).shortLabel),
+                    row.statusCounts.PREZENT,
+                    row.statusCounts.ABSENT_MOTIVAT,
+                    row.statusCounts.ABSENT,
+                    row.statusCounts.IN_ASTEPTARE,
+                    row.statusCounts.NEPONTAT,
+                ];
+            }),
+        ];
+
+        const detailsRows = [
+            ['Program', 'Perioada start', 'Perioada final', 'Data', 'Elev', 'Clasa', 'Operator', 'Status', 'Motiv', 'Mesaj', 'Ora pontaj'],
+        ];
+
         report.studentRows.forEach((row) => {
             const operatorName = operatorsById.get(row.student.operatorId || report.schedule.operatorId)?.name || '';
-
             row.entries.forEach((entry) => {
                 const statusMeta = getStatusMeta(entry.statusCode);
-                rows.push([
+                detailsRows.push([
                     report.schedule.name || '',
                     report.schedule.validFrom || '',
                     report.schedule.validTo || '',
@@ -431,11 +471,52 @@ export default function PracticeSchedulesManagement() {
             });
         });
 
-        const csvContent = [headers, ...rows]
-            .map((row) => row.map((cell) => csvEscape(cell)).join(','))
-            .join('\n');
+        const legendRows = [
+            ['Cod', 'Descriere'],
+            ['P', 'Prezent'],
+            ['AM', 'Absent motivat'],
+            ['A', 'Absent'],
+            ['IP', 'In asteptare'],
+            ['N', 'Nepontat'],
+        ];
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+        summarySheet['!cols'] = [
+            { wch: 34 }, { wch: 12 }, { wch: 24 }, { wch: 10 }, { wch: 10 },
+            { wch: 18 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 },
+        ];
+
+        const matrixSheet = XLSX.utils.aoa_to_sheet(matrixRows);
+        matrixSheet['!cols'] = [
+            { wch: 34 },
+            { wch: 12 },
+            { wch: 24 },
+            ...report.dateKeys.map(() => ({ wch: 12 })),
+            { wch: 6 },
+            { wch: 6 },
+            { wch: 6 },
+            { wch: 6 },
+            { wch: 6 },
+        ];
+
+        const detailsSheet = XLSX.utils.aoa_to_sheet(detailsRows);
+        detailsSheet['!cols'] = [
+            { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 34 },
+            { wch: 12 }, { wch: 24 }, { wch: 16 }, { wch: 20 }, { wch: 40 }, { wch: 12 },
+        ];
+
+        const legendSheet = XLSX.utils.aoa_to_sheet(legendRows);
+        legendSheet['!cols'] = [{ wch: 8 }, { wch: 22 }];
+
+        XLSX.utils.book_append_sheet(workbook, summarySheet, 'Centralizator');
+        XLSX.utils.book_append_sheet(workbook, matrixSheet, 'Matrice prezenta');
+        XLSX.utils.book_append_sheet(workbook, detailsSheet, 'Detaliat');
+        XLSX.utils.book_append_sheet(workbook, legendSheet, 'Legenda');
+
+        const data = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([data], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
         const link = document.createElement('a');
         const filename = [
             'prezenta',
@@ -445,7 +526,7 @@ export default function PracticeSchedulesManagement() {
         ].join('_');
 
         link.href = URL.createObjectURL(blob);
-        link.download = `${filename}.csv`;
+        link.download = `${filename}.xlsx`;
         link.click();
         URL.revokeObjectURL(link.href);
     }
@@ -475,14 +556,35 @@ export default function PracticeSchedulesManagement() {
         setIsExportingReportScheduleId(schedule.id);
         try {
             const report = await buildScheduleReport(schedule);
-            exportScheduleReportCsv(report);
+            await exportScheduleReportExcel(report);
             toast({
                 title: 'Raport descarcat',
-                description: `Fisierul pentru perioada ${schedule.validFrom} - ${schedule.validTo} a fost generat.`,
+                description: `Fisierul Excel pentru perioada ${schedule.validFrom} - ${schedule.validTo} a fost generat.`,
             });
         } catch (error) {
             toast({
-                title: 'Nu am putut genera CSV-ul',
+                title: 'Nu am putut genera fisierul Excel',
+                description: error?.message || 'Incearca din nou.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsExportingReportScheduleId('');
+        }
+    }
+
+    async function handleExportCurrentReport() {
+        if (!selectedScheduleReport) return;
+        const scheduleId = selectedScheduleReport.schedule?.id || 'report_modal';
+        setIsExportingReportScheduleId(scheduleId);
+        try {
+            await exportScheduleReportExcel(selectedScheduleReport);
+            toast({
+                title: 'Raport descarcat',
+                description: `Fisierul Excel pentru perioada ${selectedScheduleReport.schedule?.validFrom || '-'} - ${selectedScheduleReport.schedule?.validTo || '-'} a fost generat.`,
+            });
+        } catch (error) {
+            toast({
+                title: 'Nu am putut genera fisierul Excel',
                 description: error?.message || 'Incearca din nou.',
                 variant: 'destructive',
             });
@@ -583,7 +685,7 @@ export default function PracticeSchedulesManagement() {
                                         ) : (
                                             <Download className="h-3 w-3 mr-1" />
                                         )}
-                                        Descarca CSV
+                                        Descarca Excel
                                     </Button>
                                 </div>
 
@@ -726,12 +828,16 @@ export default function PracticeSchedulesManagement() {
                             Inchide
                         </Button>
                         <Button
-                            onClick={() => exportScheduleReportCsv(selectedScheduleReport)}
-                            disabled={!selectedScheduleReport || Boolean(isLoadingReportScheduleId)}
+                            onClick={handleExportCurrentReport}
+                            disabled={!selectedScheduleReport || Boolean(isLoadingReportScheduleId) || Boolean(isExportingReportScheduleId)}
                             className="bg-blue-600 hover:bg-blue-700"
                         >
-                            <Download className="h-4 w-4 mr-2" />
-                            Descarca CSV
+                            {isExportingReportScheduleId ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Download className="h-4 w-4 mr-2" />
+                            )}
+                            Descarca Excel
                         </Button>
                     </DialogFooter>
                 </DialogContent>
