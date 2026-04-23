@@ -1219,7 +1219,7 @@ export default function AdminDashboard() {
                         <TabsTrigger value="scuze">
                             Scuze elevi ({filteredAbsenceNotes.length})
                         </TabsTrigger>
-                        <TabsTrigger value="audit">Audit</TabsTrigger>
+                        <TabsTrigger value="analize">Analize</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="pontaj" className="space-y-6">
@@ -1240,7 +1240,17 @@ export default function AdminDashboard() {
                             )}
                             onCellClick={handleMatrixCellClick}
                         />
+                    </TabsContent>
 
+                    <TabsContent value="scuze" className="space-y-6">
+                        <DashboardAbsenceQueue
+                            notes={filteredAbsenceNotes}
+                            isApplyingId={isApplyingAbsenceId}
+                            onApplyJustification={handleApplyAbsenceJustification}
+                        />
+                    </TabsContent>
+
+                    <TabsContent value="analize" className="space-y-6">
                         <DashboardCharts
                             weekAttendances={weekAttendances}
                             presentCount={presentCount}
@@ -1266,17 +1276,7 @@ export default function AdminDashboard() {
                             handleExportCSV={handleExportCSV}
                             handleStudentClick={handleStudentClick}
                         />
-                    </TabsContent>
 
-                    <TabsContent value="scuze" className="space-y-6">
-                        <DashboardAbsenceQueue
-                            notes={filteredAbsenceNotes}
-                            isApplyingId={isApplyingAbsenceId}
-                            onApplyJustification={handleApplyAbsenceJustification}
-                        />
-                    </TabsContent>
-
-                    <TabsContent value="audit" className="space-y-6">
                         <DashboardAuditTrail logs={auditLogs} />
                     </TabsContent>
                 </Tabs>

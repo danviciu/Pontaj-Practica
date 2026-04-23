@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -23,13 +23,15 @@ export default function DashboardFilters({
     handleResetFilters,
     handleExportCSV,
 }) {
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="text-lg">Filtre rapide</CardTitle>
+                <CardTitle className="text-lg">Filtre</CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
                     <div className="space-y-2">
                         <label className="text-sm font-medium">Perioada practica</label>
                         <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
@@ -92,43 +94,6 @@ export default function DashboardFilters({
                     </div>
 
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Status validare</label>
-                        <Select value={selectedValidationStatus} onValueChange={setSelectedValidationStatus}>
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">Toate</SelectItem>
-                                <SelectItem value="PENDING">In asteptare</SelectItem>
-                                <SelectItem value="ABSENT">Absent</SelectItem>
-                                <SelectItem value="NEPONTAT">Nepontat</SelectItem>
-                                {validationStatuses.map((statusValue) => (
-                                    <SelectItem key={statusValue} value={statusValue}>
-                                        {statusValue}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Motiv validare</label>
-                        <Select value={selectedValidationReason} onValueChange={setSelectedValidationReason}>
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">Toate motivele</SelectItem>
-                                {validationReasons.map((reasonValue) => (
-                                    <SelectItem key={reasonValue} value={reasonValue}>
-                                        {getValidationReasonLabel(reasonValue)}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-2">
                         <label className="text-sm font-medium">Cautare</label>
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -142,7 +107,54 @@ export default function DashboardFilters({
                     </div>
                 </div>
 
+                {showAdvancedFilters && (
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Status validare</label>
+                            <Select value={selectedValidationStatus} onValueChange={setSelectedValidationStatus}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Toate</SelectItem>
+                                    <SelectItem value="PENDING">In asteptare</SelectItem>
+                                    <SelectItem value="ABSENT">Absent</SelectItem>
+                                    <SelectItem value="NEPONTAT">Nepontat</SelectItem>
+                                    {validationStatuses.map((statusValue) => (
+                                        <SelectItem key={statusValue} value={statusValue}>
+                                            {statusValue}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Motiv validare</label>
+                            <Select value={selectedValidationReason} onValueChange={setSelectedValidationReason}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Toate motivele</SelectItem>
+                                    {validationReasons.map((reasonValue) => (
+                                        <SelectItem key={reasonValue} value={reasonValue}>
+                                            {getValidationReasonLabel(reasonValue)}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                )}
+
                 <div className="mt-4 flex items-center justify-end gap-2">
+                    <Button
+                        variant="outline"
+                        onClick={() => setShowAdvancedFilters((state) => !state)}
+                    >
+                        {showAdvancedFilters ? 'Ascunde filtre avansate' : 'Arata filtre avansate'}
+                    </Button>
                     <Button variant="outline" onClick={handleResetFilters}>
                         <RotateCcw className="h-4 w-4 mr-2" />
                         Reset filtre
