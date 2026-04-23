@@ -12,13 +12,20 @@ import DashboardFilters from '@/components/admin/dashboard/DashboardFilters';
 import DashboardStudentLists from '@/components/admin/dashboard/DashboardStudentLists';
 import DashboardKpiReport from '@/components/admin/dashboard/DashboardKpiReport';
 import DashboardAuditTrail from '@/components/admin/dashboard/DashboardAuditTrail';
+import DashboardStatusLegend from '@/components/admin/dashboard/DashboardStatusLegend';
+import DashboardAttendanceMatrix from '@/components/admin/dashboard/DashboardAttendanceMatrix';
+import DashboardAbsenceQueue from '@/components/admin/dashboard/DashboardAbsenceQueue';
 import AddStudentsModal from '@/components/admin/dashboard/modals/AddStudentsModal';
 import CredentialsModal from '@/components/admin/dashboard/modals/CredentialsModal';
 import AttendanceDetailsModal from '@/components/admin/AttendanceDetailsModal';
 import { listAuditEvents } from '@/lib/audit-log';
 import { toast } from '@/components/ui/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DAY_STATUS, getDayStatusMeta } from '@/components/admin/dashboard/attendance-status-presets';
+import { getValidationReasonLabel } from '@/lib/attendance-labels';
 
 const VALID_PRESENT_STATUSES = new Set(['VALIDA', 'CORECTATA_MANUAL']);
+const JUSTIFIED_ABSENCE_REASONS = new Set(['ABSENTA_MOTIVATA']);
 
 const DASHBOARD_STATUS = {
     PRESENT: 'PRESENT',
@@ -42,6 +49,19 @@ function getSelectedDateReference(selectedDate) {
         return new Date();
     }
     return candidate;
+}
+
+function parseDateKeyFromAbsenceDetails(detailsValue) {
+    const details = String(detailsValue || '');
+    const match = details.match(/(\d{4}-\d{2}-\d{2})/);
+    return match?.[1] || '';
+}
+
+function parseReasonFromAbsenceDetails(detailsValue) {
+    const details = String(detailsValue || '');
+    const delimiterIndex = details.indexOf(':');
+    if (delimiterIndex === -1) return details;
+    return details.slice(delimiterIndex + 1).trim();
 }
 
 function getNoAttendanceStatusInfo({
@@ -122,29 +142,6 @@ function getNoAttendanceStatusInfo({
     };
 }
 
-function getStatusMessageForExport(statusInfo) {
-    if (!statusInfo) return '';
-
-    if (statusInfo.dashboardStatus === DASHBOARD_STATUS.PENDING) {
-        switch (statusInfo.reason) {
-        case 'DATA_IN_VIITOR':
-            return 'Data selectata este in viitor.';
-        case 'INAFARA_PERIOADEI':
-            return 'Nu exista perioada activa pentru aceasta data.';
-        case 'FARA_OPERATOR':
-            return 'Elevul nu are operator alocat.';
-        default:
-            return 'Pontaj in asteptare pentru data selectata.';
-        }
-    }
-
-    if (statusInfo.dashboardStatus === DASHBOARD_STATUS.ABSENT && statusInfo.reason === 'FARA_PONTAJ') {
-        return 'Nu exista pontaj valid pentru data selectata.';
-    }
-
-    return '';
-}
-
 function listDateKeysInRange(startDateKey, endDateKey) {
     const start = new Date(`${startDateKey}T00:00:00`);
     const end = new Date(`${endDateKey}T00:00:00`);
@@ -188,6 +185,7 @@ export default function AdminDashboard() {
     const [newStudents, setNewStudents] = useState([{ fullName: '', className: '' }]);
     const [generatedCredentials, setGeneratedCredentials] = useState([]);
     const [isAddingStudents, setIsAddingStudents] = useState(false);
+    const [isApplyingAbsenceId, setIsApplyingAbsenceId] = useState('');
 
     const { data: operators = [] } = useQuery({
         queryKey: ['operators'],
@@ -286,7 +284,7 @@ export default function AdminDashboard() {
 
     const { data: auditLogs = [] } = useQuery({
         queryKey: ['auditLogs'],
-        queryFn: () => listAuditEvents(25),
+        queryFn: () => listAuditEvents(200),
     });
 
     const attendancesByStudentId = useMemo(() => (
@@ -446,6 +444,245 @@ export default function AdminDashboard() {
         return map;
     }, [reportAttendances]);
 
+    const matrixStatusByStudentDay = useMemo(() => {
+        const map = new Map();
+        const todayKey = getDateKey();
+        const now = new Date();
+        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+        filteredStudents.forEach((student) => {
+            const operator = operatorsById.get(student.operatorId);
+
+            reportDateKeys.forEach((dateKey) => {
+                const entryKey = `${dateKey}|${student.id}`;
+                const attendance = reportAttendanceByStudentDay.get(entryKey);
+
+                if (attendance) {
+                    const validationStatus = attendance.validationStatus || 'VALIDA';
+                    const reasonCode = attendance.validationReason || 'OK';
+                    const reasonLabel = getValidationReasonLabel(reasonCode);
+
+                    if (isDashboardPresentStatus(validationStatus)) {
+                        map.set(entryKey, {
+                            kind: DAY_STATUS.PRESENT,
+                            attendance,
+                            reasonCode,
+                            reasonLabel,
+                            validationMessage: attendance.validationMessage || '',
+                        });
+                        return;
+                    }
+
+                    if (JUSTIFIED_ABSENCE_REASONS.has(reasonCode) || attendance.status === 'absent_justified') {
+                        map.set(entryKey, {
+                            kind: DAY_STATUS.JUSTIFIED_ABSENT,
+                            attendance,
+                            reasonCode,
+                            reasonLabel,
+                            validationMessage: attendance.validationMessage || '',
+                        });
+                        return;
+                    }
+
+                    if (validationStatus === 'IN_ASTEPTARE') {
+                        map.set(entryKey, {
+                            kind: DAY_STATUS.PENDING,
+                            attendance,
+                            reasonCode,
+                            reasonLabel,
+                            validationMessage: attendance.validationMessage || '',
+                        });
+                        return;
+                    }
+
+                    map.set(entryKey, {
+                        kind: DAY_STATUS.ABSENT,
+                        attendance,
+                        reasonCode,
+                        reasonLabel,
+                        validationMessage: attendance.validationMessage || '',
+                    });
+                    return;
+                }
+
+                if (!operator?.id) {
+                    map.set(entryKey, {
+                        kind: DAY_STATUS.NOT_APPLICABLE,
+                        attendance: null,
+                        reasonCode: 'FARA_OPERATOR',
+                        reasonLabel: getValidationReasonLabel('FARA_OPERATOR'),
+                        validationMessage: 'Elev fara operator alocat.',
+                    });
+                    return;
+                }
+
+                const dateReference = getSelectedDateReference(dateKey);
+                const windowInfo = getAttendanceWindow({
+                    now: dateReference,
+                    user: student,
+                    operator,
+                    periods,
+                    classPlans,
+                    practiceSchedules,
+                    schedules,
+                });
+                const isExpected = !windowInfo.hasPeriodsConfigured || windowInfo.hasActivePeriod;
+
+                if (!isExpected) {
+                    map.set(entryKey, {
+                        kind: DAY_STATUS.NOT_APPLICABLE,
+                        attendance: null,
+                        reasonCode: 'INAFARA_PERIOADEI',
+                        reasonLabel: getValidationReasonLabel('INAFARA_PERIOADEI'),
+                        validationMessage: 'Zi in afara perioadei active.',
+                    });
+                    return;
+                }
+
+                if (dateKey > todayKey) {
+                    map.set(entryKey, {
+                        kind: DAY_STATUS.PENDING,
+                        attendance: null,
+                        reasonCode: 'DATA_IN_VIITOR',
+                        reasonLabel: getValidationReasonLabel('DATA_IN_VIITOR'),
+                        validationMessage: 'Zi viitoare.',
+                    });
+                    return;
+                }
+
+                if (dateKey < todayKey) {
+                    map.set(entryKey, {
+                        kind: DAY_STATUS.ABSENT,
+                        attendance: null,
+                        reasonCode: 'FARA_PONTAJ',
+                        reasonLabel: getValidationReasonLabel('FARA_PONTAJ'),
+                        validationMessage: 'Nu exista pontaj valid.',
+                    });
+                    return;
+                }
+
+                const windowEndMinutes = toMinutes(windowInfo.timeWindow?.end);
+                if (windowEndMinutes !== null && nowMinutes > windowEndMinutes) {
+                    map.set(entryKey, {
+                        kind: DAY_STATUS.ABSENT,
+                        attendance: null,
+                        reasonCode: 'FARA_PONTAJ',
+                        reasonLabel: getValidationReasonLabel('FARA_PONTAJ'),
+                        validationMessage: 'Intervalul de pontaj a expirat.',
+                    });
+                    return;
+                }
+
+                map.set(entryKey, {
+                    kind: DAY_STATUS.PENDING,
+                    attendance: null,
+                    reasonCode: 'IN_ASTEPTARE_PONTAJ',
+                    reasonLabel: getValidationReasonLabel('IN_ASTEPTARE_PONTAJ'),
+                    validationMessage: 'Elevul mai poate ponta in intervalul permis.',
+                });
+            });
+        });
+
+        return map;
+    }, [
+        filteredStudents,
+        operatorsById,
+        reportDateKeys,
+        reportAttendanceByStudentDay,
+        periods,
+        classPlans,
+        practiceSchedules,
+        schedules,
+    ]);
+
+    const studentsById = useMemo(() => {
+        const map = new Map();
+        students.forEach((student) => {
+            map.set(student.id, student);
+        });
+        return map;
+    }, [students]);
+
+    const reportDateKeySet = useMemo(() => new Set(reportDateKeys), [reportDateKeys]);
+
+    const absenceNotes = useMemo(() => {
+        const latestByStudentAndDate = new Map();
+
+        auditLogs
+            .filter((entry) => entry.action === 'STUDENT_ABSENCE_NOTE')
+            .forEach((entry) => {
+                const metadata = entry?.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
+                const dateKey = metadata.dateKey || parseDateKeyFromAbsenceDetails(entry.details);
+                const studentUserId = metadata.studentUserId || entry.entityId || '';
+                if (!dateKey || !studentUserId) return;
+
+                const student = studentsById.get(studentUserId);
+                const key = `${studentUserId}|${dateKey}`;
+                const reason = metadata.reason || parseReasonFromAbsenceDetails(entry.details);
+                const normalizedEntry = {
+                    ...entry,
+                    dateKey,
+                    studentUserId,
+                    studentName: metadata.studentName || student?.full_name || entry.actorName || '',
+                    className: metadata.className || student?.className || '',
+                    operatorId: metadata.operatorId || student?.operatorId || '',
+                    reason,
+                };
+
+                const current = latestByStudentAndDate.get(key);
+                if (!current || String(normalizedEntry.timestamp || '') > String(current.timestamp || '')) {
+                    latestByStudentAndDate.set(key, normalizedEntry);
+                }
+            });
+
+        return Array.from(latestByStudentAndDate.values())
+            .sort((left, right) => String(right.timestamp || '').localeCompare(String(left.timestamp || '')));
+    }, [auditLogs, studentsById]);
+
+    const filteredAbsenceNotes = useMemo(() => {
+        const normalizedSearch = searchTerm.toLowerCase().trim();
+
+        return absenceNotes
+            .filter((note) => reportDateKeySet.has(note.dateKey))
+            .filter((note) => {
+                const student = studentsById.get(note.studentUserId);
+                if (selectedOperator !== 'all' && (student?.operatorId || note.operatorId) !== selectedOperator) return false;
+                if (selectedClass !== 'all' && (student?.className || note.className) !== selectedClass) return false;
+                if (!normalizedSearch) return true;
+
+                const searchPool = [
+                    note.studentName,
+                    student?.full_name,
+                    note.reason,
+                    note.details,
+                    note.dateKey,
+                ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase();
+                return searchPool.includes(normalizedSearch);
+            })
+            .map((note) => {
+                const attendance = reportAttendanceByStudentDay.get(`${note.dateKey}|${note.studentUserId}`);
+                const isJustified = Boolean(
+                    attendance
+                    && (
+                        JUSTIFIED_ABSENCE_REASONS.has(attendance.validationReason)
+                        || attendance.status === 'absent_justified'
+                    )
+                );
+                return { ...note, isJustified };
+            });
+    }, [
+        absenceNotes,
+        reportDateKeySet,
+        selectedOperator,
+        selectedClass,
+        searchTerm,
+        studentsById,
+        reportAttendanceByStudentDay,
+    ]);
+
     const kpiReport = useMemo(() => {
         const todayKey = getDateKey();
         const summary = { expected: 0, present: 0, absent: 0, pending: 0, rate: 0 };
@@ -552,6 +789,18 @@ export default function AdminDashboard() {
     const absentCount = filteredStudents.filter((student) => (
         studentStatusInfoById.get(student.id)?.dashboardStatus === DASHBOARD_STATUS.ABSENT
     )).length;
+    const justifiedAbsentCount = filteredStudents.filter((student) => {
+        const attendance = attendancesByStudentId.get(student.id);
+        return Boolean(
+            studentStatusInfoById.get(student.id)?.dashboardStatus === DASHBOARD_STATUS.ABSENT
+            && attendance
+            && (
+                JUSTIFIED_ABSENCE_REASONS.has(attendance.validationReason)
+                || attendance.status === 'absent_justified'
+            )
+        );
+    }).length;
+    const unjustifiedAbsentCount = Math.max(absentCount - justifiedAbsentCount, 0);
     const pendingCount = filteredStudents.filter((student) => (
         studentStatusInfoById.get(student.id)?.dashboardStatus === DASHBOARD_STATUS.PENDING
     )).length;
@@ -700,13 +949,38 @@ export default function AdminDashboard() {
         link.click();
     };
 
-    const handleStudentClick = (student) => {
-        const attendance = attendancesByStudentId.get(student.id);
-        const operator = operators.find((entry) => entry.id === student.operatorId);
+    const openAttendanceDetails = (student, attendance) => {
+        const operator = operatorsById.get(student.operatorId) || null;
         setSelectedStudent(student);
         setSelectedAttendance(attendance || null);
         setSelectedOperatorData(operator || null);
         setModalOpen(true);
+    };
+
+    const handleStudentClick = (student) => {
+        const attendance = attendancesByStudentId.get(student.id);
+        openAttendanceDetails(student, attendance || null);
+    };
+
+    const handleMatrixCellClick = (student, dateKey, cellStatus) => {
+        if (!cellStatus?.attendance) {
+            toast({
+                title: 'Nu exista pontaj detaliat',
+                description: `${student.full_name} - ${dateKey}: ${cellStatus?.reasonLabel || 'Fara inregistrare'}`,
+            });
+            return;
+        }
+        openAttendanceDetails(student, cellStatus.attendance);
+    };
+
+    const handleResetFilters = () => {
+        setSelectedPeriod('all');
+        setSelectedDate(getDateKey());
+        setSelectedOperator('all');
+        setSelectedClass('all');
+        setSelectedValidationStatus('all');
+        setSelectedValidationReason('all');
+        setSearchTerm('');
     };
 
     const handleExportCSV = (operatorId = null) => {
@@ -715,10 +989,10 @@ export default function AdminDashboard() {
             'Clasa',
             'Specializare',
             'Operator',
-            'Status Validare',
-            'Motiv Validare',
-            'Mesaj Validare',
             'Data',
+            'Status',
+            'Motiv',
+            'Mesaj',
             'Ora',
             'Latitudine',
             'Longitudine',
@@ -730,25 +1004,28 @@ export default function AdminDashboard() {
             studentsToExport = filteredStudents.filter((student) => student.operatorId === operatorId);
         }
 
-        const rows = studentsToExport.map((student) => {
-            const attendance = attendancesByStudentId.get(student.id);
-            const statusInfo = studentStatusInfoById.get(student.id);
-            const operator = operators.find((entry) => entry.id === student.operatorId);
-
-            return [
-                student.full_name,
-                student.className || '',
-                student.specialization || '',
-                operator?.name || '',
-                attendance?.validationStatus || statusInfo?.dashboardStatus || 'PENDING',
-                attendance?.validationReason || statusInfo?.reason || '',
-                attendance?.validationMessage || getStatusMessageForExport(statusInfo),
-                selectedDate,
-                attendance ? format(new Date(attendance.timestamp), 'HH:mm:ss') : '',
-                attendance ? attendance.lat.toFixed(6) : '',
-                attendance ? attendance.lng.toFixed(6) : '',
-                attendance ? attendance.distanceMeters : '',
-            ];
+        const rows = [];
+        studentsToExport.forEach((student) => {
+            const operator = operatorsById.get(student.operatorId);
+            reportDateKeys.forEach((dateKey) => {
+                const cellStatus = matrixStatusByStudentDay.get(`${dateKey}|${student.id}`);
+                const attendance = cellStatus?.attendance || null;
+                const statusLabel = getDayStatusMeta(cellStatus?.kind).label;
+                rows.push([
+                    student.full_name,
+                    student.className || '',
+                    student.specialization || '',
+                    operator?.name || '',
+                    dateKey,
+                    statusLabel,
+                    attendance?.validationReason || cellStatus?.reasonCode || '',
+                    attendance?.validationMessage || cellStatus?.validationMessage || '',
+                    attendance?.timestamp ? format(new Date(attendance.timestamp), 'HH:mm:ss') : '',
+                    typeof attendance?.lat === 'number' ? attendance.lat.toFixed(6) : '',
+                    typeof attendance?.lng === 'number' ? attendance.lng.toFixed(6) : '',
+                    attendance?.distanceMeters ?? '',
+                ]);
+            });
         });
 
         const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n');
@@ -758,7 +1035,7 @@ export default function AdminDashboard() {
         const operatorName = operatorId
             ? operators.find((entry) => entry.id === operatorId)?.name || 'operator'
             : 'toate';
-        link.download = `prezenta_${selectedDate}_${operatorName}.csv`;
+        link.download = `prezenta_${reportRange.startDateKey}_${reportRange.endDateKey}_${operatorName}.csv`;
         link.click();
     };
 
@@ -811,24 +1088,105 @@ export default function AdminDashboard() {
         URL.revokeObjectURL(link.href);
     };
 
+    const handleApplyAbsenceJustification = async (note) => {
+        if (!note?.studentUserId || !note?.dateKey) {
+            toast({
+                title: 'Date incomplete',
+                description: 'Scuza selectata nu are elev sau data valida.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsApplyingAbsenceId(note.id);
+        try {
+            const [existingAttendance] = await base44.entities.Attendance.filter(
+                { studentUserId: note.studentUserId, dateKey: note.dateKey },
+                '-created_date',
+                1
+            );
+
+            if (existingAttendance && isDashboardPresentStatus(existingAttendance.validationStatus || 'VALIDA')) {
+                toast({
+                    title: 'Pontaj deja valid',
+                    description: 'Elevul are deja prezenta valida pentru ziua selectata.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            const student = studentsById.get(note.studentUserId);
+            const operator = operatorsById.get(student?.operatorId || note.operatorId);
+            const payload = {
+                studentUserId: note.studentUserId,
+                studentName: note.studentName || student?.full_name || note.actorName || '',
+                className: note.className || student?.className || '',
+                operatorId: student?.operatorId || note.operatorId || '',
+                operatorName: operator?.name || '',
+                dateKey: note.dateKey,
+                timestamp: existingAttendance?.timestamp || `${note.dateKey}T12:00:00.000Z`,
+                validationStatus: 'INVALIDA',
+                validationReason: 'ABSENTA_MOTIVATA',
+                validationMessage: `Absenta motivata de administrator. Motiv elev: ${note.reason || 'n/a'}`,
+                status: 'absent_justified',
+                requiresReview: false,
+            };
+
+            if (existingAttendance?.id) {
+                await base44.entities.Attendance.update(existingAttendance.id, payload);
+            } else {
+                await base44.entities.Attendance.create(payload);
+            }
+
+            await base44.entities.AuditLog.create({
+                timestamp: new Date().toISOString(),
+                action: 'ADMIN_MARK_ABSENCE_JUSTIFIED',
+                entityType: 'Attendance',
+                entityId: existingAttendance?.id || note.studentUserId,
+                actorName: 'Administrator',
+                actorEmail: '',
+                details: `Absenta elevului ${note.studentName || note.studentUserId} din ${note.dateKey} a fost marcata ca motivata.`,
+                metadata: {
+                    studentUserId: note.studentUserId,
+                    studentName: note.studentName || student?.full_name || '',
+                    dateKey: note.dateKey,
+                    reason: note.reason || '',
+                },
+            });
+
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['attendances'] }),
+                queryClient.invalidateQueries({ queryKey: ['reportAttendances'] }),
+                queryClient.invalidateQueries({ queryKey: ['auditLogs'] }),
+                queryClient.invalidateQueries({ queryKey: ['weekAttendances'] }),
+            ]);
+
+            toast({
+                title: 'Absenta marcata ca motivata',
+                description: `${note.studentName || 'Elevul'} a fost actualizat pentru data ${note.dateKey}.`,
+            });
+        } catch (error) {
+            toast({
+                title: 'Nu am putut marca absenta',
+                description: error?.message || 'Incearca din nou.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsApplyingAbsenceId('');
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-6">
             <div className="max-w-full mx-auto space-y-6">
                 <DashboardHeader
                     totalStudents={totalStudents}
                     presentCount={presentCount}
-                    absentCount={absentCount}
+                    justifiedAbsentCount={justifiedAbsentCount}
+                    unjustifiedAbsentCount={unjustifiedAbsentCount}
                     pendingCount={pendingCount}
+                    selectedDate={selectedDate}
                     setAddStudentModalOpen={setAddStudentModalOpen}
-                />
-
-                <DashboardCharts
-                    weekAttendances={weekAttendances}
-                    presentCount={presentCount}
-                    absentCount={absentCount}
-                    pendingCount={pendingCount}
-                    operatorDistribution={operatorDistribution}
-                    classDistribution={classDistribution}
                 />
 
                 <DashboardFilters
@@ -851,27 +1209,77 @@ export default function AdminDashboard() {
                     validationReasons={validationReasons}
                     searchTerm={searchTerm}
                     setSearchTerm={setSearchTerm}
+                    handleResetFilters={handleResetFilters}
                     handleExportCSV={handleExportCSV}
                 />
 
-                <DashboardKpiReport
-                    reportRangeLabel={reportRange.label}
-                    summary={kpiReport.summary}
-                    byClass={kpiReport.byClass}
-                    byOperator={kpiReport.byOperator}
-                    onExportCsv={handleExportKpiCsv}
-                />
+                <Tabs defaultValue="pontaj" className="space-y-4">
+                    <TabsList>
+                        <TabsTrigger value="pontaj">Pontaj</TabsTrigger>
+                        <TabsTrigger value="scuze">
+                            Scuze elevi ({filteredAbsenceNotes.length})
+                        </TabsTrigger>
+                        <TabsTrigger value="audit">Audit</TabsTrigger>
+                    </TabsList>
 
-                <DashboardStudentLists
-                    groupedStudents={groupedStudents}
-                    operators={operators}
-                    attendancesByStudentId={attendancesByStudentId}
-                    studentStatusInfoById={studentStatusInfoById}
-                    handleExportCSV={handleExportCSV}
-                    handleStudentClick={handleStudentClick}
-                />
+                    <TabsContent value="pontaj" className="space-y-6">
+                        <DashboardStatusLegend />
 
-                <DashboardAuditTrail logs={auditLogs} />
+                        <DashboardAttendanceMatrix
+                            students={filteredStudents}
+                            dateKeys={reportDateKeys}
+                            selectedDate={selectedDate}
+                            getCellStatus={(student, dateKey) => (
+                                matrixStatusByStudentDay.get(`${dateKey}|${student.id}`) || {
+                                    kind: DAY_STATUS.NOT_APPLICABLE,
+                                    attendance: null,
+                                    reasonCode: '',
+                                    reasonLabel: '-',
+                                    validationMessage: '',
+                                }
+                            )}
+                            onCellClick={handleMatrixCellClick}
+                        />
+
+                        <DashboardCharts
+                            weekAttendances={weekAttendances}
+                            presentCount={presentCount}
+                            absentCount={absentCount}
+                            pendingCount={pendingCount}
+                            operatorDistribution={operatorDistribution}
+                            classDistribution={classDistribution}
+                        />
+
+                        <DashboardKpiReport
+                            reportRangeLabel={reportRange.label}
+                            summary={kpiReport.summary}
+                            byClass={kpiReport.byClass}
+                            byOperator={kpiReport.byOperator}
+                            onExportCsv={handleExportKpiCsv}
+                        />
+
+                        <DashboardStudentLists
+                            groupedStudents={groupedStudents}
+                            operators={operators}
+                            attendancesByStudentId={attendancesByStudentId}
+                            studentStatusInfoById={studentStatusInfoById}
+                            handleExportCSV={handleExportCSV}
+                            handleStudentClick={handleStudentClick}
+                        />
+                    </TabsContent>
+
+                    <TabsContent value="scuze" className="space-y-6">
+                        <DashboardAbsenceQueue
+                            notes={filteredAbsenceNotes}
+                            isApplyingId={isApplyingAbsenceId}
+                            onApplyJustification={handleApplyAbsenceJustification}
+                        />
+                    </TabsContent>
+
+                    <TabsContent value="audit" className="space-y-6">
+                        <DashboardAuditTrail logs={auditLogs} />
+                    </TabsContent>
+                </Tabs>
             </div>
 
             <AttendanceDetailsModal

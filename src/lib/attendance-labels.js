@@ -14,6 +14,7 @@ export const VALIDATION_REASON_LABELS = {
     IN_ASTEPTARE_PONTAJ: 'Asteptare pontaj in intervalul permis',
     IN_ASTEPTARE: 'Pontaj in asteptare',
     RESPINS: 'Pontaj respins',
+    ABSENTA_MOTIVATA: 'Absenta motivata',
 };
 
 export function getValidationReasonLabel(reasonCode) {

@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Download } from 'lucide-react';
+import { Search, Download, RotateCcw } from 'lucide-react';
 import {
     Select,
     SelectContent,
@@ -20,12 +20,13 @@ export default function DashboardFilters({
     selectedValidationStatus, setSelectedValidationStatus, validationStatuses,
     selectedValidationReason, setSelectedValidationReason, validationReasons,
     searchTerm, setSearchTerm,
-    handleExportCSV
+    handleResetFilters,
+    handleExportCSV,
 }) {
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="text-lg">Filtre</CardTitle>
+                <CardTitle className="text-lg">Filtre rapide</CardTitle>
             </CardHeader>
             <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
@@ -98,7 +99,7 @@ export default function DashboardFilters({
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">Toate</SelectItem>
-                                <SelectItem value="PENDING">Pending</SelectItem>
+                                <SelectItem value="PENDING">In asteptare</SelectItem>
                                 <SelectItem value="ABSENT">Absent</SelectItem>
                                 <SelectItem value="NEPONTAT">Nepontat</SelectItem>
                                 {validationStatuses.map((statusValue) => (
@@ -141,10 +142,14 @@ export default function DashboardFilters({
                     </div>
                 </div>
 
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex items-center justify-end gap-2">
+                    <Button variant="outline" onClick={handleResetFilters}>
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                        Reset filtre
+                    </Button>
                     <Button onClick={() => handleExportCSV()} className="bg-green-600 hover:bg-green-700">
                         <Download className="h-4 w-4 mr-2" />
-                        Export CSV (toate)
+                        Export interval
                     </Button>
                 </div>
             </CardContent>
