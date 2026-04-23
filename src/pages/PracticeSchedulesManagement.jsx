@@ -1,16 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
+import { eachDayOfInterval, format, parseISO } from 'date-fns';
 import { ro } from 'date-fns/locale';
-import { Calendar, Clock, Edit2, Plus, Trash2, Users } from 'lucide-react';
+import { Calendar, Clock, Download, Edit2, Eye, Loader2, Plus, Trash2, Users } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { createPageUrl } from '@/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -44,13 +44,112 @@ const EMPTY_FORM = {
     isActive: true,
 };
 
+const PRESENT_VALIDATION_STATUSES = new Set(['VALIDA', 'CORECTATA_MANUAL']);
+
+const DAY_INDEX_BY_VALUE = {
+    sunday: 0,
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+};
+
+const REPORT_STATUS_META = {
+    PREZENT: { label: 'Prezent', shortLabel: 'P', className: 'bg-emerald-100 text-emerald-700' },
+    ABSENT_MOTIVAT: { label: 'Absent motivat', shortLabel: 'AM', className: 'bg-blue-100 text-blue-700' },
+    ABSENT: { label: 'Absent', shortLabel: 'A', className: 'bg-red-100 text-red-700' },
+    IN_ASTEPTARE: { label: 'In asteptare', shortLabel: 'IP', className: 'bg-amber-100 text-amber-700' },
+    NEPONTAT: { label: 'Nepontat', shortLabel: 'N', className: 'bg-gray-100 text-gray-700' },
+};
+
+function getStatusMeta(code) {
+    return REPORT_STATUS_META[code] || REPORT_STATUS_META.NEPONTAT;
+}
+
+function getAttendanceStatusCode(attendance) {
+    if (!attendance) return 'NEPONTAT';
+
+    const validationStatus = attendance.validationStatus || '';
+    const validationReason = attendance.validationReason || '';
+
+    if (PRESENT_VALIDATION_STATUSES.has(validationStatus)) {
+        return 'PREZENT';
+    }
+    if (validationReason === 'ABSENTA_MOTIVATA' || attendance.status === 'absent_justified') {
+        return 'ABSENT_MOTIVAT';
+    }
+    if (validationStatus === 'IN_ASTEPTARE') {
+        return 'IN_ASTEPTARE';
+    }
+    return 'ABSENT';
+}
+
+function listScheduleDateKeys(schedule) {
+    if (!schedule?.validFrom || !schedule?.validTo) return [];
+
+    const start = parseISO(`${schedule.validFrom}`);
+    const end = parseISO(`${schedule.validTo}`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+        return [];
+    }
+
+    const selectedDayIndexes = new Set(
+        (Array.isArray(schedule.daysOfWeek) ? schedule.daysOfWeek : [])
+            .map((day) => DAY_INDEX_BY_VALUE[day])
+            .filter((dayIndex) => typeof dayIndex === 'number')
+    );
+    const hasDayFilter = selectedDayIndexes.size > 0;
+
+    return eachDayOfInterval({ start, end })
+        .filter((dateValue) => !hasDayFilter || selectedDayIndexes.has(dateValue.getDay()))
+        .map((dateValue) => format(dateValue, 'yyyy-MM-dd'));
+}
+
+function getStudentsForSchedule(schedule, students) {
+    let scopedStudents = students.filter((student) => student.isActive !== false);
+    const selectedStudentIds = new Set(Array.isArray(schedule?.studentUserIds) ? schedule.studentUserIds : []);
+
+    if (selectedStudentIds.size > 0) {
+        scopedStudents = scopedStudents.filter((student) => selectedStudentIds.has(student.id));
+    } else {
+        if (schedule?.className) {
+            scopedStudents = scopedStudents.filter((student) => student.className === schedule.className);
+        }
+        if (schedule?.operatorId) {
+            scopedStudents = scopedStudents.filter((student) => student.operatorId === schedule.operatorId);
+        }
+    }
+
+    return scopedStudents.sort((left, right) => (
+        String(left.full_name || '').localeCompare(String(right.full_name || ''))
+    ));
+}
+
+function csvEscape(value) {
+    return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function sanitizeFilePart(value) {
+    return String(value || 'program')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+}
+
 export default function PracticeSchedulesManagement() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [modalOpen, setModalOpen] = useState(false);
+    const [reportModalOpen, setReportModalOpen] = useState(false);
     const [editingSchedule, setEditingSchedule] = useState(null);
     const [formData, setFormData] = useState(EMPTY_FORM);
     const [studentSearch, setStudentSearch] = useState('');
+    const [selectedScheduleReport, setSelectedScheduleReport] = useState(null);
+    const [isLoadingReportScheduleId, setIsLoadingReportScheduleId] = useState('');
+    const [isExportingReportScheduleId, setIsExportingReportScheduleId] = useState('');
+    const [reportErrorMessage, setReportErrorMessage] = useState('');
 
     const { data: schedules = [] } = useQuery({
         queryKey: ['practiceSchedules'],
@@ -210,6 +309,196 @@ export default function PracticeSchedulesManagement() {
         return map;
     }, [operators]);
 
+    async function buildScheduleReport(schedule) {
+        const dateKeys = listScheduleDateKeys(schedule);
+        const scopedStudents = getStudentsForSchedule(schedule, students);
+        const studentIdSet = new Set(scopedStudents.map((student) => student.id));
+
+        const attendanceByStudentDate = new Map();
+        if (dateKeys.length > 0 && studentIdSet.size > 0) {
+            const attendancesByDay = await Promise.all(
+                dateKeys.map((dateKey) => base44.entities.Attendance.filter({ dateKey }, '-created_date', 1000))
+            );
+
+            attendancesByDay.flat().forEach((attendance) => {
+                if (!studentIdSet.has(attendance.studentUserId)) return;
+                const mapKey = `${attendance.dateKey}|${attendance.studentUserId}`;
+                if (!attendanceByStudentDate.has(mapKey)) {
+                    attendanceByStudentDate.set(mapKey, attendance);
+                }
+            });
+        }
+
+        const studentRows = scopedStudents.map((student) => {
+            const entries = dateKeys.map((dateKey) => {
+                const attendance = attendanceByStudentDate.get(`${dateKey}|${student.id}`) || null;
+                const statusCode = getAttendanceStatusCode(attendance);
+                return {
+                    dateKey,
+                    attendance,
+                    statusCode,
+                };
+            });
+
+            const statusCounts = entries.reduce((accumulator, entry) => {
+                accumulator[entry.statusCode] = (accumulator[entry.statusCode] || 0) + 1;
+                return accumulator;
+            }, {
+                PREZENT: 0,
+                ABSENT_MOTIVAT: 0,
+                ABSENT: 0,
+                IN_ASTEPTARE: 0,
+                NEPONTAT: 0,
+            });
+
+            const expectedDays = dateKeys.length;
+            const presenceRate = expectedDays > 0
+                ? (statusCounts.PREZENT / expectedDays) * 100
+                : 0;
+
+            return {
+                student,
+                entries,
+                statusCounts,
+                expectedDays,
+                presenceRate,
+            };
+        });
+
+        const summary = studentRows.reduce((accumulator, row) => {
+            accumulator.students += 1;
+            accumulator.expected += row.expectedDays;
+            accumulator.present += row.statusCounts.PREZENT;
+            accumulator.justifiedAbsent += row.statusCounts.ABSENT_MOTIVAT;
+            accumulator.absent += row.statusCounts.ABSENT;
+            accumulator.pending += row.statusCounts.IN_ASTEPTARE;
+            accumulator.notMarked += row.statusCounts.NEPONTAT;
+            return accumulator;
+        }, {
+            students: 0,
+            expected: 0,
+            present: 0,
+            justifiedAbsent: 0,
+            absent: 0,
+            pending: 0,
+            notMarked: 0,
+        });
+
+        return {
+            schedule,
+            dateKeys,
+            studentRows,
+            summary,
+        };
+    }
+
+    function exportScheduleReportCsv(report) {
+        if (!report) return;
+
+        const headers = [
+            'Program',
+            'Perioada start',
+            'Perioada final',
+            'Data',
+            'Elev',
+            'Clasa',
+            'Operator',
+            'Status',
+            'Motiv',
+            'Mesaj',
+            'Ora pontaj',
+        ];
+
+        const rows = [];
+        report.studentRows.forEach((row) => {
+            const operatorName = operatorsById.get(row.student.operatorId || report.schedule.operatorId)?.name || '';
+
+            row.entries.forEach((entry) => {
+                const statusMeta = getStatusMeta(entry.statusCode);
+                rows.push([
+                    report.schedule.name || '',
+                    report.schedule.validFrom || '',
+                    report.schedule.validTo || '',
+                    entry.dateKey,
+                    row.student.full_name || '',
+                    row.student.className || '',
+                    operatorName,
+                    statusMeta.label,
+                    entry.attendance?.validationReason || '',
+                    entry.attendance?.validationMessage || '',
+                    entry.attendance?.timestamp ? format(new Date(entry.attendance.timestamp), 'HH:mm:ss') : '',
+                ]);
+            });
+        });
+
+        const csvContent = [headers, ...rows]
+            .map((row) => row.map((cell) => csvEscape(cell)).join(','))
+            .join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const filename = [
+            'prezenta',
+            sanitizeFilePart(report.schedule?.name || 'program'),
+            report.schedule?.validFrom || 'start',
+            report.schedule?.validTo || 'end',
+        ].join('_');
+
+        link.href = URL.createObjectURL(blob);
+        link.download = `${filename}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    }
+
+    async function handleOpenReport(schedule) {
+        setReportModalOpen(true);
+        setSelectedScheduleReport(null);
+        setReportErrorMessage('');
+        setIsLoadingReportScheduleId(schedule.id);
+
+        try {
+            const report = await buildScheduleReport(schedule);
+            setSelectedScheduleReport(report);
+        } catch (error) {
+            setReportErrorMessage(error?.message || 'Nu am putut incarca raportul de prezenta.');
+            toast({
+                title: 'Raport indisponibil',
+                description: error?.message || 'Incearca din nou.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsLoadingReportScheduleId('');
+        }
+    }
+
+    async function handleExportScheduleReport(schedule) {
+        setIsExportingReportScheduleId(schedule.id);
+        try {
+            const report = await buildScheduleReport(schedule);
+            exportScheduleReportCsv(report);
+            toast({
+                title: 'Raport descarcat',
+                description: `Fisierul pentru perioada ${schedule.validFrom} - ${schedule.validTo} a fost generat.`,
+            });
+        } catch (error) {
+            toast({
+                title: 'Nu am putut genera CSV-ul',
+                description: error?.message || 'Incearca din nou.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsExportingReportScheduleId('');
+        }
+    }
+
+    function handleCloseReportModal(open) {
+        setReportModalOpen(open);
+        if (!open) {
+            setSelectedScheduleReport(null);
+            setReportErrorMessage('');
+        }
+    }
+
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-6">
             <div className="max-w-7xl mx-auto space-y-6">
@@ -267,7 +556,38 @@ export default function PracticeSchedulesManagement() {
                                     )}
                                 </div>
 
-                                <div className="flex gap-2 pt-2 border-t">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full"
+                                        onClick={() => handleOpenReport(schedule)}
+                                        disabled={isLoadingReportScheduleId === schedule.id}
+                                    >
+                                        {isLoadingReportScheduleId === schedule.id ? (
+                                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        ) : (
+                                            <Eye className="h-3 w-3 mr-1" />
+                                        )}
+                                        Vezi prezenta
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full"
+                                        onClick={() => handleExportScheduleReport(schedule)}
+                                        disabled={isExportingReportScheduleId === schedule.id}
+                                    >
+                                        {isExportingReportScheduleId === schedule.id ? (
+                                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        ) : (
+                                            <Download className="h-3 w-3 mr-1" />
+                                        )}
+                                        Descarca CSV
+                                    </Button>
+                                </div>
+
+                                <div className="flex gap-2">
                                     <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenModal(schedule)}>
                                         <Edit2 className="h-3 w-3 mr-1" />
                                         Editeaza
@@ -297,6 +617,125 @@ export default function PracticeSchedulesManagement() {
                     </Card>
                 )}
             </div>
+
+            <Dialog open={reportModalOpen} onOpenChange={handleCloseReportModal}>
+                <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {selectedScheduleReport?.schedule?.name
+                                ? `Prezenta perioada: ${selectedScheduleReport.schedule.name}`
+                                : 'Prezenta perioada de practica'}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {selectedScheduleReport?.schedule
+                                ? `${selectedScheduleReport.schedule.validFrom || '-'} - ${selectedScheduleReport.schedule.validTo || '-'}`
+                                : 'Vizualizare si export prezenta pentru perioada selectata.'}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {isLoadingReportScheduleId && (
+                        <div className="py-10 text-center text-gray-500 flex items-center justify-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Se incarca prezenta pentru perioada selectata...
+                        </div>
+                    )}
+
+                    {!isLoadingReportScheduleId && reportErrorMessage && (
+                        <div className="py-10 text-center text-red-600">
+                            {reportErrorMessage}
+                        </div>
+                    )}
+
+                    {!isLoadingReportScheduleId && !reportErrorMessage && selectedScheduleReport && (
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap gap-2">
+                                <Badge variant="secondary">Elevi: {selectedScheduleReport.summary.students}</Badge>
+                                <Badge variant="secondary">Zile: {selectedScheduleReport.dateKeys.length}</Badge>
+                                <Badge variant="secondary">Total puncte: {selectedScheduleReport.summary.expected}</Badge>
+                                <Badge variant="secondary">Prezente: {selectedScheduleReport.summary.present}</Badge>
+                                <Badge variant="secondary">Absente motivate: {selectedScheduleReport.summary.justifiedAbsent}</Badge>
+                                <Badge variant="secondary">Absente: {selectedScheduleReport.summary.absent}</Badge>
+                                <Badge variant="secondary">In asteptare: {selectedScheduleReport.summary.pending}</Badge>
+                                <Badge variant="secondary">Nepontat: {selectedScheduleReport.summary.notMarked}</Badge>
+                            </div>
+
+                            {(selectedScheduleReport.dateKeys.length === 0 || selectedScheduleReport.studentRows.length === 0) ? (
+                                <Card>
+                                    <CardContent className="py-8 text-center text-gray-500">
+                                        Nu exista date suficiente pentru raport (zile configurate sau elevi asociati).
+                                    </CardContent>
+                                </Card>
+                            ) : (
+                                <div className="border rounded-lg overflow-auto">
+                                    <table className="min-w-full text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="text-left p-2 sticky left-0 bg-gray-50 z-10">Elev</th>
+                                                {selectedScheduleReport.dateKeys.map((dateKey) => (
+                                                    <th key={dateKey} className="text-center p-2 whitespace-nowrap">
+                                                        {format(new Date(`${dateKey}T00:00:00`), 'dd MMM', { locale: ro })}
+                                                    </th>
+                                                ))}
+                                                <th className="text-center p-2">P</th>
+                                                <th className="text-center p-2">AM</th>
+                                                <th className="text-center p-2">A</th>
+                                                <th className="text-center p-2">IP</th>
+                                                <th className="text-center p-2">N</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {selectedScheduleReport.studentRows.map((row) => (
+                                                <tr key={row.student.id} className="border-t">
+                                                    <td className="p-2 sticky left-0 bg-white z-10">
+                                                        <p className="font-medium text-gray-900">{row.student.full_name || '-'}</p>
+                                                        <p className="text-xs text-gray-500">{row.student.className || '-'}</p>
+                                                    </td>
+                                                    {row.entries.map((entry) => {
+                                                        const statusMeta = getStatusMeta(entry.statusCode);
+                                                        return (
+                                                            <td key={`${row.student.id}_${entry.dateKey}`} className="p-2 text-center">
+                                                                <span
+                                                                    title={`${entry.dateKey} - ${statusMeta.label}`}
+                                                                    className={`inline-flex min-w-8 justify-center rounded px-2 py-1 text-xs font-medium ${statusMeta.className}`}
+                                                                >
+                                                                    {statusMeta.shortLabel}
+                                                                </span>
+                                                            </td>
+                                                        );
+                                                    })}
+                                                    <td className="p-2 text-center font-medium">{row.statusCounts.PREZENT}</td>
+                                                    <td className="p-2 text-center font-medium">{row.statusCounts.ABSENT_MOTIVAT}</td>
+                                                    <td className="p-2 text-center font-medium">{row.statusCounts.ABSENT}</td>
+                                                    <td className="p-2 text-center font-medium">{row.statusCounts.IN_ASTEPTARE}</td>
+                                                    <td className="p-2 text-center font-medium">{row.statusCounts.NEPONTAT}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            <div className="text-xs text-gray-500">
+                                Legenda: P = prezent, AM = absent motivat, A = absent, IP = in asteptare, N = nepontat.
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => handleCloseReportModal(false)}>
+                            Inchide
+                        </Button>
+                        <Button
+                            onClick={() => exportScheduleReportCsv(selectedScheduleReport)}
+                            disabled={!selectedScheduleReport || Boolean(isLoadingReportScheduleId)}
+                            className="bg-blue-600 hover:bg-blue-700"
+                        >
+                            <Download className="h-4 w-4 mr-2" />
+                            Descarca CSV
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={modalOpen} onOpenChange={setModalOpen}>
                 <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
