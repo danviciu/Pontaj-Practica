@@ -5,6 +5,7 @@ import { format, subDays } from 'date-fns';
 
 import { getDateKey } from '../components/utils/geolocation';
 import { getAttendanceWindow } from '@/lib/attendance-validation';
+import { addDaysToDateKey, getAppMinutes } from '@/lib/app-time';
 
 import DashboardHeader from '@/components/admin/dashboard/DashboardHeader';
 import DashboardCharts from '@/components/admin/dashboard/DashboardCharts';
@@ -12,9 +13,9 @@ import DashboardFilters from '@/components/admin/dashboard/DashboardFilters';
 import DashboardStudentLists from '@/components/admin/dashboard/DashboardStudentLists';
 import DashboardKpiReport from '@/components/admin/dashboard/DashboardKpiReport';
 import DashboardAuditTrail from '@/components/admin/dashboard/DashboardAuditTrail';
-import DashboardStatusLegend from '@/components/admin/dashboard/DashboardStatusLegend';
 import DashboardAttendanceMatrix from '@/components/admin/dashboard/DashboardAttendanceMatrix';
 import DashboardAbsenceQueue from '@/components/admin/dashboard/DashboardAbsenceQueue';
+import { Card, CardContent } from '@/components/ui/card';
 import AddStudentsModal from '@/components/admin/dashboard/modals/AddStudentsModal';
 import CredentialsModal from '@/components/admin/dashboard/modals/CredentialsModal';
 import AttendanceDetailsModal from '@/components/admin/AttendanceDetailsModal';
@@ -143,17 +144,19 @@ function getNoAttendanceStatusInfo({
 }
 
 function listDateKeysInRange(startDateKey, endDateKey) {
-    const start = new Date(`${startDateKey}T00:00:00`);
-    const end = new Date(`${endDateKey}T00:00:00`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(String(startDateKey || ''))
+        || !/^\d{4}-\d{2}-\d{2}$/.test(String(endDateKey || ''))
+        || startDateKey > endDateKey
+    ) {
         return [getDateKey()];
     }
 
     const keys = [];
-    const cursor = new Date(start);
-    while (cursor <= end) {
-        keys.push(cursor.toISOString().split('T')[0]);
-        cursor.setDate(cursor.getDate() + 1);
+    let cursor = startDateKey;
+    while (cursor <= endDateKey && keys.length < 370) {
+        keys.push(cursor);
+        cursor = addDaysToDateKey(cursor, 1);
     }
     return keys;
 }
@@ -165,6 +168,13 @@ function isDashboardPresentStatus(statusValue) {
 function getAttendanceRate(present, expected) {
     if (!expected) return 0;
     return (present / expected) * 100;
+}
+
+function isPracticeProgramActiveForWindow(windowInfo) {
+    const isInsideActivePeriod = !windowInfo.hasPeriodsConfigured || windowInfo.hasActivePeriod;
+    if (!isInsideActivePeriod) return false;
+    if (windowInfo.hasPracticeScheduleConstraints && !windowInfo.timeWindow) return false;
+    return true;
 }
 
 export default function AdminDashboard() {
@@ -319,7 +329,7 @@ export default function AdminDashboard() {
 
     const todayDateKey = getDateKey();
     const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const nowMinutes = getAppMinutes(now);
     const selectedDateReference = useMemo(() => getSelectedDateReference(selectedDate), [selectedDate]);
 
     const studentStatusInfoById = useMemo(() => {
@@ -448,7 +458,7 @@ export default function AdminDashboard() {
         const map = new Map();
         const todayKey = getDateKey();
         const now = new Date();
-        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+        const nowMinutes = getAppMinutes(now);
 
         filteredStudents.forEach((student) => {
             const operator = operatorsById.get(student.operatorId);
@@ -526,7 +536,7 @@ export default function AdminDashboard() {
                     practiceSchedules,
                     schedules,
                 });
-                const isExpected = !windowInfo.hasPeriodsConfigured || windowInfo.hasActivePeriod;
+                const isExpected = isPracticeProgramActiveForWindow(windowInfo);
 
                 if (!isExpected) {
                     map.set(entryKey, {
@@ -589,6 +599,39 @@ export default function AdminDashboard() {
         operatorsById,
         reportDateKeys,
         reportAttendanceByStudentDay,
+        periods,
+        classPlans,
+        practiceSchedules,
+        schedules,
+    ]);
+
+    const isPracticeProgramActiveForMatrix = useMemo(() => {
+        if (filteredStudents.length === 0 || reportDateKeys.length === 0) {
+            return true;
+        }
+
+        return filteredStudents.some((student) => {
+            const operator = operatorsById.get(student.operatorId);
+            if (!operator?.id) return false;
+
+            return reportDateKeys.some((dateKey) => {
+                const dateReference = getSelectedDateReference(dateKey);
+                const windowInfo = getAttendanceWindow({
+                    now: dateReference,
+                    user: student,
+                    operator,
+                    periods,
+                    classPlans,
+                    practiceSchedules,
+                    schedules,
+                });
+                return isPracticeProgramActiveForWindow(windowInfo);
+            });
+        });
+    }, [
+        filteredStudents,
+        operatorsById,
+        reportDateKeys,
         periods,
         classPlans,
         practiceSchedules,
@@ -713,7 +756,7 @@ export default function AdminDashboard() {
                     schedules,
                 });
 
-                const isExpected = !windowInfo.hasPeriodsConfigured || windowInfo.hasActivePeriod;
+                const isExpected = isPracticeProgramActiveForWindow(windowInfo);
                 if (!isExpected) return;
 
                 summary.expected += 1;
@@ -1223,23 +1266,29 @@ export default function AdminDashboard() {
                     </TabsList>
 
                     <TabsContent value="pontaj" className="space-y-6">
-                        <DashboardStatusLegend />
-
-                        <DashboardAttendanceMatrix
-                            students={filteredStudents}
-                            dateKeys={reportDateKeys}
-                            selectedDate={selectedDate}
-                            getCellStatus={(student, dateKey) => (
-                                matrixStatusByStudentDay.get(`${dateKey}|${student.id}`) || {
-                                    kind: DAY_STATUS.NOT_APPLICABLE,
-                                    attendance: null,
-                                    reasonCode: '',
-                                    reasonLabel: '-',
-                                    validationMessage: '',
-                                }
-                            )}
-                            onCellClick={handleMatrixCellClick}
-                        />
+                        {isPracticeProgramActiveForMatrix ? (
+                            <DashboardAttendanceMatrix
+                                students={filteredStudents}
+                                dateKeys={reportDateKeys}
+                                selectedDate={selectedDate}
+                                getCellStatus={(student, dateKey) => (
+                                    matrixStatusByStudentDay.get(`${dateKey}|${student.id}`) || {
+                                        kind: DAY_STATUS.NOT_APPLICABLE,
+                                        attendance: null,
+                                        reasonCode: '',
+                                        reasonLabel: '-',
+                                        validationMessage: '',
+                                    }
+                                )}
+                                onCellClick={handleMatrixCellClick}
+                            />
+                        ) : (
+                            <Card>
+                                <CardContent className="py-8 text-center text-sm text-gray-600">
+                                    Matricea de prezenta este disponibila doar cand exista program de practica activ pentru selectia curenta.
+                                </CardContent>
+                            </Card>
+                        )}
                     </TabsContent>
 
                     <TabsContent value="scuze" className="space-y-6">

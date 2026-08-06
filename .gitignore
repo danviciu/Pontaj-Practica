@@ -9,6 +9,14 @@ android/app/build
 android/local.properties
 android/signing.properties
 android/keys
+android/app/google-services.json
+
+# Cloudflare Workers local state
+.wrangler
+
+# Release artifacts / student credential exports (never commit)
+*.apk
+*.csv
 
 # Logs
 logs

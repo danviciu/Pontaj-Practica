@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,13 +10,14 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import AttendanceButton from '@/components/attendance/AttendanceButton';
 import StatusIndicator from '@/components/attendance/StatusIndicator';
-import { getDateKey } from '../components/utils/geolocation';
+import { getCurrentPosition, getDateKey } from '../components/utils/geolocation';
 import { format } from 'date-fns';
 import { ro } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '../utils';
 import { getAttendanceWindow } from '@/lib/attendance-validation';
 import { toast } from '@/components/ui/use-toast';
+import { ensureDevicePushRegistration } from '@/lib/push-registration';
 
 const STATUS_LABELS = {
     VALIDA: 'Validata',
@@ -42,6 +45,68 @@ function formatDateKeyForDisplay(dateKey) {
     return format(candidate, 'd MMM yyyy', { locale: ro });
 }
 
+// iOS Safari only exposes the Notification API to PWAs added to the home
+// screen — in a plain browser tab `typeof Notification === 'undefined'`, and
+// no permission prompt can ever fix that. Detect this case to show the user
+// the actual fix (install the app) instead of a dead-end "enable" button.
+function isLikelyIosSafariBrowserTab() {
+    if (typeof navigator === 'undefined') return false;
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent || '')
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isStandalone = window.navigator?.standalone === true
+        || window.matchMedia?.('(display-mode: standalone)')?.matches === true;
+    return isIos && !isStandalone;
+}
+
+async function resolveNotificationPermissionStatus({ request = false } = {}) {
+    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() !== 'web') {
+        const permissionState = await PushNotifications.checkPermissions();
+        let status = permissionState?.receive || 'prompt';
+        if (request && status === 'prompt') {
+            const requested = await PushNotifications.requestPermissions();
+            status = requested?.receive || status;
+        }
+        return status === 'granted' ? 'granted' : (status === 'denied' ? 'denied' : 'prompt');
+    }
+
+    if (typeof Notification === 'undefined') return 'unsupported';
+    let status = Notification.permission;
+    if (request && status === 'default') {
+        status = await Notification.requestPermission();
+    }
+    if (status === 'granted') return 'granted';
+    if (status === 'denied') return 'denied';
+    return 'prompt';
+}
+
+async function resolveLocationPermissionStatus({ request = false } = {}) {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return 'unsupported';
+
+    if (!request && navigator.permissions?.query) {
+        try {
+            const permission = await navigator.permissions.query({ name: 'geolocation' });
+            if (permission.state === 'granted') return 'granted';
+            if (permission.state === 'denied') return 'denied';
+            return 'prompt';
+        } catch {
+            return 'prompt';
+        }
+    }
+
+    if (!request) return 'prompt';
+
+    try {
+        await getCurrentPosition();
+        return 'granted';
+    } catch (error) {
+        const message = String(error?.message || '').toLowerCase();
+        if (message.includes('refuzat') || message.includes('denied') || message.includes('permisiunea')) {
+            return 'denied';
+        }
+        return 'prompt';
+    }
+}
+
 export default function StudentHome() {
     const navigate = useNavigate();
     const [user, setUser] = useState(null);
@@ -52,6 +117,11 @@ export default function StudentHome() {
     const [absenceReason, setAbsenceReason] = useState('');
     const [isSubmittingAbsence, setIsSubmittingAbsence] = useState(false);
     const [hasSubmittedAbsenceToday, setHasSubmittedAbsenceToday] = useState(false);
+    const [permissionState, setPermissionState] = useState({
+        isChecking: true,
+        notifications: 'prompt',
+        location: 'prompt',
+    });
 
     useEffect(() => {
         async function loadUser() {
@@ -94,6 +164,36 @@ export default function StudentHome() {
 
         loadUser();
     }, [navigate]);
+
+    async function refreshPermissionState(request = false) {
+        setPermissionState((prev) => ({ ...prev, isChecking: true }));
+        try {
+            const [notifications, location] = await Promise.all([
+                resolveNotificationPermissionStatus({ request }),
+                resolveLocationPermissionStatus({ request }),
+            ]);
+            setPermissionState({
+                isChecking: false,
+                notifications,
+                location,
+            });
+            return { notifications, location };
+        } catch (error) {
+            setPermissionState((prev) => ({
+                ...prev,
+                isChecking: false,
+            }));
+            return {
+                notifications: 'prompt',
+                location: 'prompt',
+            };
+        }
+    }
+
+    useEffect(() => {
+        if (!user?.id) return;
+        refreshPermissionState(false).catch(() => undefined);
+    }, [user?.id]);
 
     const { data: todayAttendance } = useQuery({
         queryKey: ['todayAttendance', user?.id, refreshKey],
@@ -148,6 +248,9 @@ export default function StudentHome() {
         (todayRecord ? 'Prezenta a fost inregistrata.' : 'Nu exista pontaj pentru azi.');
     const canCheckIn = !todayRecord;
     const todayDateKey = getDateKey();
+    const hasNotificationPermission = permissionState.notifications === 'granted';
+    const hasLocationPermission = permissionState.location === 'granted';
+    const hasRequiredPermissions = hasNotificationPermission && hasLocationPermission;
 
     useEffect(() => {
         if (!user?.id || typeof window === 'undefined') {
@@ -226,6 +329,30 @@ export default function StudentHome() {
 
     if (!user) {
         return null;
+    }
+
+    async function handleEnableMandatoryPermissions() {
+        const next = await refreshPermissionState(true);
+        const missing = [];
+        if (next.notifications !== 'granted') missing.push('notificari');
+        if (next.location !== 'granted') missing.push('locatie');
+
+        if (missing.length === 0) {
+            if (user?.id && user?.role === 'user') {
+                await ensureDevicePushRegistration(user).catch(() => undefined);
+            }
+            toast({
+                title: 'Permisiuni active',
+                description: 'Poti continua cu pontajul.',
+            });
+            return;
+        }
+
+        toast({
+            title: 'Permisiuni obligatorii lipsa',
+            description: `Activeaza ${missing.join(' si ')} din setarile dispozitivului/browserului.`,
+            variant: 'destructive',
+        });
     }
 
     async function handleSubmitAbsenceReason() {
@@ -397,7 +524,57 @@ export default function StudentHome() {
                     </Card>
                 )}
 
-                {canCheckIn && isCheckInAllowedNow && (
+                {canCheckIn && isCheckInAllowedNow && !hasRequiredPermissions && (
+                    <Card className="border-amber-200 bg-amber-50">
+                        <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Permisiuni obligatorii pentru pontaj</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3 text-sm text-amber-900">
+                            <p>
+                                Pentru inregistrarea prezentei trebuie sa fie active:
+                                notificari si locatie.
+                            </p>
+                            <div className="space-y-1 text-xs">
+                                <p>Notificari: {hasNotificationPermission ? 'active' : permissionState.notifications === 'unsupported' ? 'nesuportat pe dispozitiv' : 'inactive'}</p>
+                                <p>Locatie: {hasLocationPermission ? 'activa' : permissionState.location === 'unsupported' ? 'nesuportata pe dispozitiv' : 'inactiva'}</p>
+                            </div>
+                            {permissionState.notifications === 'unsupported' && isLikelyIosSafariBrowserTab() ? (
+                                <p className="text-xs bg-amber-100 border border-amber-200 rounded p-2">
+                                    Pe iPhone/iPad, Safari nu ofera notificari decat aplicatiilor
+                                    adaugate pe ecranul principal. Deschide meniul de
+                                    <strong> Distribuire (Share)</strong> si alege
+                                    <strong> „Adauga pe ecranul principal"</strong>, apoi deschide
+                                    aplicatia de acolo si activeaza permisiunile.
+                                </p>
+                            ) : permissionState.notifications === 'unsupported' ? (
+                                <p className="text-xs bg-amber-100 border border-amber-200 rounded p-2">
+                                    Acest browser nu suporta notificari. Incearca Chrome, Edge sau
+                                    Firefox, sau instaleaza aplicatia ca PWA de pe dispozitiv.
+                                </p>
+                            ) : (
+                                <Button
+                                    onClick={handleEnableMandatoryPermissions}
+                                    disabled={permissionState.isChecking}
+                                    className="w-full"
+                                >
+                                    {permissionState.isChecking ? 'Verific permisiuni...' : 'Activeaza permisiuni'}
+                                </Button>
+                            )}
+                            {permissionState.notifications === 'unsupported' && (
+                                <Button
+                                    onClick={handleEnableMandatoryPermissions}
+                                    disabled={permissionState.isChecking}
+                                    variant="outline"
+                                    className="w-full"
+                                >
+                                    {permissionState.isChecking ? 'Verific permisiuni...' : 'Reverifica permisiuni'}
+                                </Button>
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
+
+                {canCheckIn && isCheckInAllowedNow && hasRequiredPermissions && (
                     <AttendanceButton
                         user={user}
                         operator={operator}

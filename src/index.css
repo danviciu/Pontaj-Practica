@@ -37,6 +37,24 @@
         --sidebar-accent-foreground: 240 5.9% 10%;
         --sidebar-border: 220 13% 91%;
         --sidebar-ring: 217.2 91.2% 59.8%;
+
+        /* Semantic status colors (attendance states) + brand accent — kept
+           separate from the shadcn grayscale tokens above so existing
+           components are untouched; new status pills opt in explicitly. */
+        --brand: 210 53% 28%;
+        --brand-soft: 210 35% 93%;
+        --gold: 38 68% 40%;
+        --gold-soft: 38 55% 91%;
+        --status-ok: 152 55% 30%;
+        --status-ok-soft: 152 45% 93%;
+        --status-info: 209 51% 37%;
+        --status-info-soft: 209 45% 93%;
+        --status-warn: 30 70% 40%;
+        --status-warn-soft: 35 55% 91%;
+        --status-danger: 2 45% 45%;
+        --status-danger-soft: 2 40% 93%;
+        --status-neutral: 220 9% 46%;
+        --status-neutral-soft: 220 14% 93%;
     }
 
     .dark {
@@ -72,6 +90,21 @@
         --sidebar-accent-foreground: 240 4.8% 95.9%;
         --sidebar-border: 240 3.7% 15.9%;
         --sidebar-ring: 217.2 91.2% 59.8%;
+
+        --brand: 210 55% 68%;
+        --brand-soft: 210 30% 20%;
+        --gold: 38 68% 62%;
+        --gold-soft: 38 40% 18%;
+        --status-ok: 152 45% 55%;
+        --status-ok-soft: 152 35% 16%;
+        --status-info: 209 55% 65%;
+        --status-info-soft: 209 35% 18%;
+        --status-warn: 35 70% 62%;
+        --status-warn-soft: 35 40% 18%;
+        --status-danger: 2 65% 72%;
+        --status-danger-soft: 2 30% 18%;
+        --status-neutral: 220 12% 65%;
+        --status-neutral-soft: 220 15% 20%;
     }
 }
 

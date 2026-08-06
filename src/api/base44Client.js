@@ -2,9 +2,21 @@ import { appParams } from '@/lib/app-params';
 
 const TOKEN_KEYS = ['app_access_token', 'base44_access_token', 'token'];
 const isBrowser = typeof window !== 'undefined';
+const LOCALHOST_NAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 const normalizeBaseUrl = (value) => String(value || '').trim().replace(/\/+$/, '');
-const API_BASE_URL = normalizeBaseUrl(appParams.appBaseUrl || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787');
+
+function inferDefaultApiBaseUrl() {
+    if (!isBrowser) return 'http://127.0.0.1:8787';
+    if (LOCALHOST_NAMES.has(window.location.hostname)) {
+        return 'http://127.0.0.1:8787';
+    }
+    return window.location.origin;
+}
+
+const API_BASE_URL = normalizeBaseUrl(
+    appParams.appBaseUrl || import.meta.env.VITE_API_BASE_URL || inferDefaultApiBaseUrl()
+);
 
 export const isDemoMode = String(import.meta.env.VITE_USE_DEMO || '').toLowerCase() === 'true';
 
@@ -71,11 +83,22 @@ async function apiRequest(path, { method = 'GET', body, auth = true } = {}) {
         headers.Authorization = `Bearer ${accessToken}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${path}`, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    let response;
+    try {
+        response = await fetch(`${API_BASE_URL}${path}`, {
+            method,
+            headers,
+            body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+    } catch (networkError) {
+        const error = new Error(
+            `Nu pot contacta API-ul (${API_BASE_URL}). Verifica deploy-ul backend sau seteaza VITE_API_BASE_URL in mediul de build.`
+        );
+        error.status = 0;
+        error.code = 'network_error';
+        error.cause = networkError;
+        throw error;
+    }
 
     const parsed = await parseResponseBody(response);
     if (!response.ok) {
@@ -190,6 +213,14 @@ const coreIntegrationsProxy = new Proxy(
 
 export const base44 = {
     entities: entitiesProxy,
+    attendance: {
+        async checkIn(payload = {}) {
+            return apiRequest('/api/attendance/checkin', {
+                method: 'POST',
+                body: payload,
+            });
+        },
+    },
     integrations: {
         Core: coreIntegrationsProxy,
     },
@@ -309,7 +340,21 @@ export const base44 = {
         async resetPasswordRequest(email) {
             return apiRequest('/api/auth/reset-password-request', {
                 method: 'POST',
+                auth: false,
                 body: { email },
+            });
+        },
+        async resetPasswordConfirm({ uid, token, newPassword }) {
+            return apiRequest('/api/auth/reset-password-confirm', {
+                method: 'POST',
+                auth: false,
+                body: { uid, token, newPassword },
+            });
+        },
+        async adminResetPassword({ userId, email }) {
+            return apiRequest('/api/auth/admin-reset-password', {
+                method: 'POST',
+                body: { userId, email },
             });
         },
         async resetPassword(payload = {}) {

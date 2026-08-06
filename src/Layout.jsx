@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
-import { LayoutDashboard, Home, Menu, X, Calendar, KeyRound, Shield, ChevronDown } from 'lucide-react';
+import {
+    LayoutDashboard, Home, Calendar, KeyRound, Shield, ChevronDown, Users, UserCircle,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Drawer, DrawerContent, DrawerHeader, DrawerFooter, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
@@ -36,9 +39,25 @@ const ADMIN_NAV_ITEMS = [
 
 const STUDENT_NAV_ITEMS = [{ type: 'link', name: 'Acasa', path: 'StudentHome', icon: Home }];
 
+// Primary destinations for the mobile bottom tab bar (admin only). Kept
+// short on purpose: this is the day-to-day scope for someone checking
+// attendance between classes, not the full system-admin surface — Organizatie
+// (Administratori/Operatori) lives in the "Profil" drawer instead, alongside
+// account actions, since it isn't a daily-use screen.
+const ADMIN_BOTTOM_TABS = [
+    { name: 'Azi', path: 'AdminDashboard', icon: LayoutDashboard },
+    { name: 'Clase', path: 'ClassManagement', icon: Users },
+    { name: 'Programe', path: 'PracticeSchedulesManagement', icon: Calendar },
+];
+
+const ORGANIZATION_LINKS = [
+    { name: 'Administratori', path: 'AdminsManagement', icon: Shield },
+    { name: 'Operatori', path: 'OperatorsManagement', icon: Users },
+];
+
 export default function Layout({ children, currentPageName }) {
     const [user, setUser] = useState(null);
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
     const [openGroups, setOpenGroups] = useState({
         practica: true,
         organizatie: true,
@@ -227,9 +246,16 @@ export default function Layout({ children, currentPageName }) {
                 <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                    onClick={() => setProfileDrawerOpen(true)}
+                    aria-label="Profil"
                 >
-                    {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                    {user?.full_name ? (
+                        <span className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold text-sm">
+                            {user.full_name[0]}
+                        </span>
+                    ) : (
+                        <UserCircle className="h-6 w-6" />
+                    )}
                 </Button>
             </div>
 
@@ -289,57 +315,103 @@ export default function Layout({ children, currentPageName }) {
                 )}
             </div>
 
-            {/* Mobile Menu */}
-            {mobileMenuOpen && (
-                <div className="md:hidden fixed inset-0 bg-white z-40 pt-16">
-                    <nav className="p-4">
-                        <ul className="space-y-2">
-                            {links.map((link) => renderMenuItem(link, { mobile: true }))}
-                        </ul>
-                    </nav>
-
-                    {user && (
-                        <div className="absolute bottom-0 left-0 right-0 p-4 border-t bg-white">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                                    <span className="text-gray-600 font-semibold text-sm">
-                                        {user.full_name?.[0] || 'U'}
-                                    </span>
-                                </div>
-                                <div className="flex-1">
-                                    <p className="text-sm font-semibold text-gray-900">{user.full_name}</p>
-                                    <p className="text-xs text-gray-500">{user.email}</p>
-                                </div>
-                            </div>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-full mb-2"
-                                onClick={() => {
-                                    setMobileMenuOpen(false);
-                                    setPasswordDialogOpen(true);
-                                }}
+            {/* Mobile bottom tab bar — primary nav for the day-to-day admin scope */}
+            {isAdmin && (
+                <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-50 flex pb-[env(safe-area-inset-bottom)]">
+                    {ADMIN_BOTTOM_TABS.map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = currentPageName === tab.path;
+                        return (
+                            <Link
+                                key={tab.path}
+                                to={createPageUrl(tab.path)}
+                                className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] font-semibold ${isActive ? 'text-blue-600' : 'text-gray-500'
+                                    }`}
                             >
-                                <KeyRound className="h-4 w-4 mr-2" />
-                                Schimba parola
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => base44.auth.logout()}
-                                className="w-full"
-                            >
-                                Deconectare
-                            </Button>
-                        </div>
-                    )}
-                </div>
+                                <Icon className="h-5 w-5" />
+                                {tab.name}
+                            </Link>
+                        );
+                    })}
+                    <button
+                        type="button"
+                        onClick={() => setProfileDrawerOpen(true)}
+                        className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] font-semibold ${profileDrawerOpen
+                            || ['AdminsManagement', 'OperatorsManagement', 'StudentsManagement'].includes(currentPageName)
+                            ? 'text-blue-600'
+                            : 'text-gray-500'
+                            }`}
+                    >
+                        <UserCircle className="h-5 w-5" />
+                        Profil
+                    </button>
+                </nav>
             )}
 
             {/* Main Content */}
-            <div className="md:ml-64 pt-16 md:pt-0">
+            <div className={`md:ml-64 pt-16 md:pt-0 ${isAdmin ? 'pb-20 md:pb-0' : ''}`}>
                 {children}
             </div>
+
+            {/* Profile drawer (mobile): account actions + the system-admin
+                screens that don't need a permanent slot in the bottom bar. */}
+            <Drawer open={profileDrawerOpen} onOpenChange={setProfileDrawerOpen}>
+                <DrawerContent>
+                    <DrawerHeader>
+                        <DrawerTitle>{user?.full_name || 'Profil'}</DrawerTitle>
+                        <DrawerDescription>{user?.email}</DrawerDescription>
+                    </DrawerHeader>
+
+                    <div className="px-4 pb-2 space-y-1">
+                        {isAdmin && (
+                            <>
+                                <Link
+                                    to={createPageUrl('StudentsManagement')}
+                                    onClick={() => setProfileDrawerOpen(false)}
+                                    className="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-700 hover:bg-gray-50"
+                                >
+                                    <Users className="h-5 w-5" />
+                                    Toti elevii
+                                </Link>
+                                <p className="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                                    Organizatie
+                                </p>
+                                {ORGANIZATION_LINKS.map((link) => {
+                                    const Icon = link.icon;
+                                    return (
+                                        <Link
+                                            key={link.path}
+                                            to={createPageUrl(link.path)}
+                                            onClick={() => setProfileDrawerOpen(false)}
+                                            className="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-700 hover:bg-gray-50"
+                                        >
+                                            <Icon className="h-5 w-5" />
+                                            {link.name}
+                                        </Link>
+                                    );
+                                })}
+                                <div className="border-t my-2" />
+                            </>
+                        )}
+                    </div>
+
+                    <DrawerFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setProfileDrawerOpen(false);
+                                setPasswordDialogOpen(true);
+                            }}
+                        >
+                            <KeyRound className="h-4 w-4 mr-2" />
+                            Schimba parola
+                        </Button>
+                        <Button variant="outline" onClick={() => base44.auth.logout()}>
+                            Deconectare
+                        </Button>
+                    </DrawerFooter>
+                </DrawerContent>
+            </Drawer>
 
             <Dialog open={passwordDialogOpen} onOpenChange={(open) => (open ? setPasswordDialogOpen(true) : closePasswordDialog())}>
                 <DialogContent className="max-w-md">

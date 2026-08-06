@@ -50,6 +50,7 @@
 import React from 'react';
 
 const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
+const AdminsManagement = React.lazy(() => import('./pages/AdminsManagement'));
 const ClassPracticePlansManagement = React.lazy(() => import('./pages/ClassPracticePlansManagement'));
 const OnboardingSetup = React.lazy(() => import('./pages/OnboardingSetup'));
 const OperatorStudentsList = React.lazy(() => import('./pages/OperatorStudentsList'));
@@ -61,11 +62,13 @@ const StudentHome = React.lazy(() => import('./pages/StudentHome'));
 const StudentsManagement = React.lazy(() => import('./pages/StudentsManagement'));
 const ClassManagement = React.lazy(() => import('./pages/ClassManagement'));
 const Login = React.lazy(() => import('./pages/Login'));
+const ResetPassword = React.lazy(() => import('./pages/ResetPassword'));
 import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
     "AdminDashboard": AdminDashboard,
+    "AdminsManagement": AdminsManagement,
     "ClassPracticePlansManagement": ClassPracticePlansManagement,
     "OnboardingSetup": OnboardingSetup,
     "OperatorStudentsList": OperatorStudentsList,
@@ -77,6 +80,7 @@ export const PAGES = {
     "StudentsManagement": StudentsManagement,
     "ClassManagement": ClassManagement,
     "Login": Login,
+    "ResetPassword": ResetPassword,
 }
 
 export const pagesConfig = {

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
+import { ensureDevicePushRegistration } from '@/lib/push-registration';
 
 const AuthContext = createContext();
 
@@ -15,6 +16,13 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         checkAppState();
     }, []);
+
+    useEffect(() => {
+        if (!user?.id || user.role !== 'user') return;
+        ensureDevicePushRegistration(user).catch((error) => {
+            console.warn('Push registration skipped:', error);
+        });
+    }, [user?.id, user?.role]);
 
     const checkAppState = async () => {
         setAuthError(null);

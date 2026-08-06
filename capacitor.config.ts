@@ -5,6 +5,11 @@ const config: CapacitorConfig = {
     appName: 'Pontaj Practica',
     webDir: 'dist',
     bundledWebRuntime: false,
+    plugins: {
+        PushNotifications: {
+            presentationOptions: ['badge', 'sound', 'alert'],
+        },
+    },
 };
 
 export default config;

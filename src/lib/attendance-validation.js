@@ -1,3 +1,11 @@
+import {
+    addDaysToDateKey,
+    getAppDateKey,
+    getAppDayName,
+    getAppMinutes,
+    getDayNameFromDateKey,
+} from './app-time.js';
+
 export const VALIDATION_STATUS = {
     VALIDA: 'VALIDA',
     INVALIDA: 'INVALIDA',
@@ -63,10 +71,6 @@ function includesDay(daysOfWeek, dayName) {
     return Array.isArray(daysOfWeek) && daysOfWeek.some((entry) => normalizeDayToken(entry) === normalizedDayName);
 }
 
-function dateKeyFromDate(dateValue) {
-    return dateValue.toISOString().split('T')[0];
-}
-
 function isWithinDateRange(dateKey, startDate, endDate) {
     if (!startDate && !endDate) return true;
     if (startDate && dateKey < startDate) return false;
@@ -99,14 +103,11 @@ function findDirectPracticeScheduleForDate(candidates, dateKey, dayName) {
 }
 
 function findNextDirectPracticeScheduleSlot(candidates, now = new Date()) {
-    const startDate = new Date(now);
-    startDate.setHours(0, 0, 0, 0);
+    const startDateKey = getAppDateKey(now);
 
     for (let offset = 0; offset < 120; offset += 1) {
-        const probeDate = new Date(startDate);
-        probeDate.setDate(startDate.getDate() + offset);
-        const probeDateKey = dateKeyFromDate(probeDate);
-        const probeDayName = WEEK_DAYS[probeDate.getDay()];
+        const probeDateKey = addDaysToDateKey(startDateKey, offset);
+        const probeDayName = getDayNameFromDateKey(probeDateKey);
         const schedule = findDirectPracticeScheduleForDate(candidates, probeDateKey, probeDayName);
         if (!schedule) continue;
         return {
@@ -121,7 +122,7 @@ function findNextDirectPracticeScheduleSlot(candidates, now = new Date()) {
 }
 
 function resolveScheduleTimeWindow({ date, dateKey, user, operator, classPlans, practiceSchedules, schedules }) {
-    const dayName = WEEK_DAYS[date.getDay()];
+    const dayName = getAppDayName(date);
 
     const bestPlan = getBestClassPlan(classPlans, user?.className, dateKey);
     if (bestPlan) {
@@ -236,8 +237,8 @@ export function getAttendanceWindow({
     practiceSchedules = [],
     schedules = [],
 }) {
-    const dateKey = dateKeyFromDate(now);
-    const dayName = WEEK_DAYS[now.getDay()];
+    const dateKey = getAppDateKey(now);
+    const dayName = getAppDayName(now);
     const hasPeriodsConfigured = (periods || []).length > 0;
     const activePeriod = hasPeriodsConfigured ? getActivePeriod(periods, dateKey, user, operator) : null;
     const hasActivePeriod = !hasPeriodsConfigured || Boolean(activePeriod);
@@ -263,7 +264,7 @@ export function getAttendanceWindow({
     let isWithinTimeWindow = true;
     let nextCheckinSlot = nextDirectPracticeSlot;
     if (timeWindow?.start && timeWindow?.end) {
-        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+        const nowMinutes = getAppMinutes(now);
         const startMinutes = toMinutes(timeWindow.start);
         const endMinutes = toMinutes(timeWindow.end);
         if (
@@ -426,11 +427,13 @@ export function validateAttendanceAttempt({
         });
     }
 
-    if (typeof accuracyMeters === 'number' && accuracyMeters > 120) {
+    if (!Number.isFinite(accuracyMeters) || accuracyMeters > 120) {
         return makeResult({
             validationStatus: VALIDATION_STATUS.INVALIDA,
             validationReason: VALIDATION_REASON.GPS_SLAB,
-            validationMessage: `Semnal GPS slab (±${Math.round(accuracyMeters)}m). Incearca din nou intr-o zona deschisa.`,
+            validationMessage: Number.isFinite(accuracyMeters)
+                ? `Semnal GPS slab (±${Math.round(accuracyMeters)}m). Incearca din nou intr-o zona deschisa.`
+                : 'Precizia semnalului GPS lipseste sau este invalida.',
             requiresReview: true,
             checkinWindowStart: timeWindow?.start || null,
             checkinWindowEnd: timeWindow?.end || null,
@@ -438,11 +441,13 @@ export function validateAttendanceAttempt({
         });
     }
 
-    if (typeof distanceMeters === 'number' && distanceMeters > allowedRadiusMeters) {
+    if (!Number.isFinite(distanceMeters) || distanceMeters > allowedRadiusMeters) {
         return makeResult({
             validationStatus: VALIDATION_STATUS.INVALIDA,
             validationReason: VALIDATION_REASON.IN_AFARA_RAZEI,
-            validationMessage: `Distanta prea mare: ${distanceMeters}m (maxim permis ${allowedRadiusMeters}m).`,
+            validationMessage: Number.isFinite(distanceMeters)
+                ? `Distanta prea mare: ${distanceMeters}m (maxim permis ${allowedRadiusMeters}m).`
+                : 'Nu s-a putut calcula distanta fata de operator (verifica locatia operatorului).',
             checkinWindowStart: timeWindow?.start || null,
             checkinWindowEnd: timeWindow?.end || null,
             allowedRadiusMeters,

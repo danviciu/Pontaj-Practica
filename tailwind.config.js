@@ -59,6 +59,26 @@ module.exports = {
                     'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
                     border: 'hsl(var(--sidebar-border))',
                     ring: 'hsl(var(--sidebar-ring))'
+                },
+                brand: {
+                    DEFAULT: 'hsl(var(--brand))',
+                    soft: 'hsl(var(--brand-soft))'
+                },
+                gold: {
+                    DEFAULT: 'hsl(var(--gold))',
+                    soft: 'hsl(var(--gold-soft))'
+                },
+                status: {
+                    ok: 'hsl(var(--status-ok))',
+                    'ok-soft': 'hsl(var(--status-ok-soft))',
+                    info: 'hsl(var(--status-info))',
+                    'info-soft': 'hsl(var(--status-info-soft))',
+                    warn: 'hsl(var(--status-warn))',
+                    'warn-soft': 'hsl(var(--status-warn-soft))',
+                    danger: 'hsl(var(--status-danger))',
+                    'danger-soft': 'hsl(var(--status-danger-soft))',
+                    neutral: 'hsl(var(--status-neutral))',
+                    'neutral-soft': 'hsl(var(--status-neutral-soft))'
                 }
             },
             keyframes: {

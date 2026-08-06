@@ -1,5 +1,7 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DAY_STATUS, getDayStatusMeta } from './attendance-status-presets';
 
 const LEGEND_ORDER = [
@@ -18,30 +20,37 @@ const LEGEND_DESCRIPTION = {
     [DAY_STATUS.NOT_APPLICABLE]: 'Zi in afara programului/perioadei de practica.',
 };
 
+// Popover instead of an always-visible card: works identically via tap on
+// touch devices (Radix triggers on click, not hover), and reclaims the
+// vertical space the legend used to take permanently on the dashboard.
 export default function DashboardStatusLegend() {
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle className="text-base">Legenda statusuri</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="gap-2">
+                    <Info className="h-3.5 w-3.5" />
+                    Legenda statusuri
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80">
+                <p className="text-sm font-semibold mb-3">Ce inseamna culorile</p>
+                <div className="space-y-3">
                     {LEGEND_ORDER.map((statusKind) => {
                         const meta = getDayStatusMeta(statusKind);
                         return (
-                            <div key={statusKind} className="rounded-lg border p-3 space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <span className={`inline-flex h-3 w-3 rounded-full ${meta.swatchClassName}`} />
-                                    <p className="font-medium text-sm">{meta.label}</p>
+                            <div key={statusKind} className="flex items-start gap-2.5">
+                                <span className={`inline-flex h-2.5 w-2.5 rounded-full mt-1 flex-shrink-0 ${meta.swatchClassName}`} />
+                                <div>
+                                    <p className="text-sm font-medium leading-tight">{meta.label}</p>
+                                    <p className="text-xs text-gray-500 leading-snug mt-0.5">
+                                        {LEGEND_DESCRIPTION[statusKind]}
+                                    </p>
                                 </div>
-                                <p className="text-xs text-gray-600">
-                                    {LEGEND_DESCRIPTION[statusKind]}
-                                </p>
                             </div>
                         );
                     })}
                 </div>
-            </CardContent>
-        </Card>
+            </PopoverContent>
+        </Popover>
     );
 }

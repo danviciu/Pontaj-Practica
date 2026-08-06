@@ -6,13 +6,16 @@ import { format } from 'date-fns';
 import { ro } from 'date-fns/locale';
 import { base44 } from '@/api/base44Client';
 import {
+  DEFAULT_CLASS_REMINDER_SETTINGS,
   createClassCatalogItem,
   deleteClassCatalogItem,
   listClassCatalog,
+  normalizeClassReminderSettings,
   normalizeClassName,
   updateClassCatalogItem,
 } from '@/lib/class-catalog';
 import { logAuditEvent } from '@/lib/audit-log';
+import { getAppDateKey } from '@/lib/app-time';
 import {
   createEmptyDeliveryStats,
   getReminderCapabilities,
@@ -21,6 +24,7 @@ import {
 } from '@/lib/reminders';
 import { toast } from '@/components/ui/use-toast';
 import { Badge } from '@/components/ui/badge';
+import AccountStatusBadge from '@/components/admin/AccountStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -40,8 +44,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const UNASSIGNED_OPERATOR = '__unassigned__';
-const CLASS_REMINDER_CONFIG_KEY = 'pontaj.class.reminder.config.v1';
-const CLASS_REMINDER_LAST_SENT_KEY = 'pontaj.class.reminder.lastSent.v1';
 
 const DAYS_MAP = {
   monday: 'Luni',
@@ -53,45 +55,20 @@ const DAYS_MAP = {
   sunday: 'Duminica',
 };
 
-const DEFAULT_REMINDER_SETTINGS = {
-  enabled: false,
-  reminderTime: '09:00',
-  channels: {
-    email: true,
-    push: false,
-    sms: false,
-  },
-  onlyAbsent: true,
-};
+const DEFAULT_REMINDER_SETTINGS = DEFAULT_CLASS_REMINDER_SETTINGS;
 
-function readJsonStorage(key, fallbackValue) {
-  if (typeof window === 'undefined') return fallbackValue;
-  try {
-    const rawValue = window.localStorage.getItem(key);
-    if (!rawValue) return fallbackValue;
-    const parsed = JSON.parse(rawValue);
-    return parsed && typeof parsed === 'object' ? parsed : fallbackValue;
-  } catch (error) {
-    return fallbackValue;
+function normalizeReminderChannels(channels = {}) {
+  const normalized = {
+    email: channels.email === true,
+    push: channels.push === true,
+    sms: channels.sms === true,
+  };
+
+  if (!normalized.email && !normalized.push && !normalized.sms) {
+    normalized.push = true;
   }
-}
 
-function writeJsonStorage(key, value) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.warn(`Cannot persist ${key}:`, error);
-  }
-}
-
-function timeStringToMinutes(value) {
-  if (!value || typeof value !== 'string') return null;
-  const [hoursRaw, minutesRaw] = value.split(':');
-  const hours = Number(hoursRaw);
-  const minutes = Number(minutesRaw);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
-  return hours * 60 + minutes;
+  return normalized;
 }
 
 export default function ClassManagement() {
@@ -155,7 +132,7 @@ export default function ClassManagement() {
 
   const { data: todayAttendances = [] } = useQuery({
     queryKey: ['todayAttendances'],
-    queryFn: () => base44.entities.Attendance.filter({ dateKey: new Date().toISOString().split('T')[0] }, '-created_date', 1000),
+    queryFn: () => base44.entities.Attendance.filter({ dateKey: getAppDateKey() }, '-created_date', 1000),
   });
 
   const { data: classCatalog = [] } = useQuery({
@@ -186,22 +163,32 @@ export default function ClassManagement() {
   }, [students, plans, classCatalog]);
 
   useEffect(() => {
-    const savedConfig = readJsonStorage(CLASS_REMINDER_CONFIG_KEY, {});
-    setReminderConfigByClass(savedConfig);
-  }, []);
-
-  useEffect(() => {
-    writeJsonStorage(CLASS_REMINDER_CONFIG_KEY, reminderConfigByClass);
-  }, [reminderConfigByClass]);
+    const fromCatalog = {};
+    classCatalog.forEach((entry) => {
+      const classKey = normalizeClassName(entry?.name);
+      if (!classKey) return;
+      fromCatalog[classKey] = normalizeClassReminderSettings({
+        ...(entry?.reminderSettings || {}),
+        enabled: entry?.reminderEnabled,
+        reminderTime: entry?.reminderTime,
+        onlyAbsent: entry?.reminderOnlyAbsent,
+        channels: entry?.reminderChannels,
+      });
+    });
+    setReminderConfigByClass((prev) => ({
+      ...prev,
+      ...fromCatalog,
+    }));
+  }, [classCatalog]);
 
   const reminderConfig = selectedClass
     ? {
       ...DEFAULT_REMINDER_SETTINGS,
       ...(reminderConfigByClass[selectedClass] || {}),
-      channels: {
+      channels: normalizeReminderChannels({
         ...DEFAULT_REMINDER_SETTINGS.channels,
         ...(reminderConfigByClass[selectedClass]?.channels || {}),
-      },
+      }),
     }
     : DEFAULT_REMINDER_SETTINGS;
 
@@ -225,21 +212,56 @@ export default function ClassManagement() {
   );
   const presentCount = classStudents.length - absentStudents.length;
 
+  async function persistReminderConfig(className, reminderSettings) {
+    const normalizedClassName = normalizeClassName(className);
+    if (!normalizedClassName) return;
+
+    const classEntry = classCatalogByName.get(normalizedClassName);
+    const payload = {
+      name: normalizedClassName,
+      specialization: classEntry?.specialization || '',
+      defaultOperatorId: classEntry?.defaultOperatorId || '',
+      isActive: classEntry?.isActive !== false,
+      reminderSettings: normalizeClassReminderSettings(reminderSettings),
+    };
+
+    if (classEntry?.id) {
+      await updateClassCatalogItem(classEntry.id, payload);
+    } else {
+      await createClassCatalogItem(payload);
+    }
+  }
+
   function updateReminderConfig(partial) {
     if (!selectedClass) return;
-    setReminderConfigByClass((prev) => ({
-      ...prev,
-      [selectedClass]: {
+    const { channels: partialChannels, ...restPartial } = partial;
+    let nextConfig = DEFAULT_REMINDER_SETTINGS;
+    setReminderConfigByClass((prev) => {
+      nextConfig = {
         ...DEFAULT_REMINDER_SETTINGS,
         ...(prev[selectedClass] || {}),
-        channels: {
+        ...restPartial,
+        channels: normalizeReminderChannels({
           ...DEFAULT_REMINDER_SETTINGS.channels,
           ...(prev[selectedClass]?.channels || {}),
-          ...(partial.channels || {}),
-        },
-        ...partial,
-      },
-    }));
+          ...(partialChannels || {}),
+        }),
+      };
+      return {
+        ...prev,
+        [selectedClass]: nextConfig,
+      };
+    });
+
+    persistReminderConfig(selectedClass, nextConfig)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['classCatalog'] }))
+      .catch((error) => {
+        toast({
+          title: 'Configuratie reminder nesalvata',
+          description: error?.message || 'Nu am putut salva setarile de reminder.',
+          variant: 'destructive',
+        });
+      });
   }
 
   async function refreshClassData() {
@@ -502,7 +524,6 @@ export default function ClassManagement() {
       ? absentStudents
       : classStudents.filter((student) => student.isActive !== false);
     const deliveryStats = createEmptyDeliveryStats();
-    const sentDetails = [];
     const reminderBody = `Buna!\n\nReminder prezenta astazi (${format(new Date(), 'd MMMM yyyy', { locale: ro })}).\n\nTe rugam sa accesezi aplicatia si sa marchezi prezenta in intervalul permis.`;
 
     try {
@@ -515,20 +536,7 @@ export default function ClassManagement() {
           body: reminderBody,
         });
         mergeDeliveryResult(deliveryStats, deliveryResult);
-        sentDetails.push(deliveryResult);
       }
-
-      const todayKey = new Date().toISOString().split('T')[0];
-      const sentMap = readJsonStorage(CLASS_REMINDER_LAST_SENT_KEY, {});
-      sentMap[selectedClass] = {
-        dateKey: todayKey,
-        trigger,
-        sentAt: new Date().toISOString(),
-        channels: reminderConfig.channels,
-        stats: deliveryStats,
-        details: sentDetails,
-      };
-      writeJsonStorage(CLASS_REMINDER_LAST_SENT_KEY, sentMap);
 
       await logAuditEvent({
         action: trigger === 'auto' ? 'CLASS_REMINDER_AUTO_SEND' : 'CLASS_REMINDER_MANUAL_SEND',
@@ -564,33 +572,6 @@ export default function ClassManagement() {
     }
   }
 
-  useEffect(() => {
-    if (!selectedClass || !reminderConfig.enabled || reminderStatus.sending) return;
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
-    const reminderMinutes = timeStringToMinutes(reminderConfig.reminderTime);
-    if (reminderMinutes === null || nowMinutes < reminderMinutes) return;
-
-    const todayKey = now.toISOString().split('T')[0];
-    const sentMap = readJsonStorage(CLASS_REMINDER_LAST_SENT_KEY, {});
-    const classMarker = sentMap[selectedClass];
-    if (classMarker?.dateKey === todayKey) return;
-
-    handleSendReminders('auto').catch((error) => {
-      console.error('Auto reminder failed:', error);
-    });
-  }, [
-    selectedClass,
-    reminderConfig.enabled,
-    reminderConfig.reminderTime,
-    reminderConfig.onlyAbsent,
-    reminderConfig.channels.email,
-    reminderConfig.channels.sms,
-    reminderConfig.channels.push,
-    reminderStatus.sending,
-    absentStudents.length,
-    classStudents.length,
-  ]);
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -665,8 +646,13 @@ export default function ClassManagement() {
                                 <TableCell>{student.phoneNumber || student.phone || '-'}</TableCell>
                                 <TableCell>{student.specialization || '-'}</TableCell>
                                 <TableCell>{operator?.name || 'Nealocat'}</TableCell>
-                                <TableCell><Badge variant={student.isActive === false ? 'secondary' : 'default'}>{student.isActive === false ? 'Inactiv' : 'Activ'}</Badge></TableCell>
-                                <TableCell><div className={`w-3 h-3 rounded-full ${isPresent ? 'bg-green-500' : 'bg-red-400'}`} /></TableCell>
+                                <TableCell><AccountStatusBadge isActive={student.isActive} /></TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-1.5" title={isPresent ? 'Prezent azi' : 'Neprezentat azi'}>
+                                    <span className={`w-2.5 h-2.5 rounded-full ${isPresent ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                                    <span className="text-xs text-gray-500">{isPresent ? 'Prezent' : 'Neprezentat'}</span>
+                                  </div>
+                                </TableCell>
                               </TableRow>
                             );
                           })}
@@ -690,7 +676,7 @@ export default function ClassManagement() {
                     <div className="space-y-3">
                       {classPlans.sort((a, b) => (b.priority || 10) - (a.priority || 10)).map((plan) => {
                         const schedule = schedules.find((entry) => entry.id === plan.scheduleId);
-                        const today = new Date().toISOString().split('T')[0];
+                        const today = getAppDateKey();
                         const isActive = today >= plan.validFrom && today <= plan.validTo;
 
                         return (
@@ -732,7 +718,7 @@ export default function ClassManagement() {
                   <CardContent className="space-y-6">
                     <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                       <p className="text-sm text-blue-900">
-                        Poti activa reminder automat pe clasa. Trimiterea automata ruleaza o data pe zi dupa ora setata.
+                        Poti activa reminder automat pe clasa. Trimiterea automata ruleaza server-side (cron), o data pe zi dupa ora setata.
                       </p>
                     </div>
 

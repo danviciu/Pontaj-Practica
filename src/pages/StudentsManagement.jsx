@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import CredentialsModal from '@/components/admin/dashboard/modals/CredentialsModal';
+import AccountStatusBadge from '@/components/admin/AccountStatusBadge';
 
 const ALL_VALUE = 'all';
 const UNASSIGNED_OPERATOR = '__unassigned__';
@@ -376,6 +377,12 @@ export default function StudentsManagement() {
       if (filterStatus === 'active' && student.isActive === false) return false;
       if (filterStatus === 'inactive' && student.isActive !== false) return false;
       return true;
+    }).sort((left, right) => {
+      const leftName = String(left.full_name || '').trim();
+      const rightName = String(right.full_name || '').trim();
+      const byName = leftName.localeCompare(rightName, 'ro', { sensitivity: 'base' });
+      if (byName !== 0) return byName;
+      return String(left.email || '').localeCompare(String(right.email || ''), 'ro', { sensitivity: 'base' });
     });
   }, [students, searchTerm, filterClass, filterOperator, filterSpecialization, filterStatus]);
 
@@ -666,35 +673,44 @@ export default function StudentsManagement() {
   }
 
   async function handleSendResetPassword(student) {
-    if (!student?.email) {
-      toast({
-        title: 'Email lipsa',
-        description: 'Elevul nu are email configurat pentru resetare parola.',
-        variant: 'destructive',
-      });
-      return;
-    }
+    if (!student?.id) return;
 
     setCredentialsActionLoading('reset');
     try {
-      await callWithRetry(() => base44.auth.resetPasswordRequest(student.email), 2);
+      // Students use @practica.local addresses (no real inbox), so we set a
+      // fresh password server-side and reveal it to the admin to hand over,
+      // rather than emailing a reset link.
+      const result = await callWithRetry(
+        () => base44.auth.adminResetPassword({ userId: student.id }),
+        2
+      );
+      const newPassword = result?.tempPassword || '';
       await logAuditEvent({
-        action: 'STUDENT_RESET_PASSWORD_REQUEST',
+        action: 'STUDENT_RESET_PASSWORD',
         entityType: 'User',
         entityId: student.id,
         actorName: currentUser?.full_name || 'Admin',
         actorEmail: currentUser?.email || '',
-        details: `Reset parola solicitat pentru ${student.full_name || student.email}`,
+        details: `Parola resetata pentru ${student.full_name || student.email}`,
       });
       await queryClient.invalidateQueries({ queryKey: ['auditLogs'] });
+
+      setGeneratedCredentials([{
+        fullName: student.full_name,
+        className: student.className || '-',
+        username: normalizeEmail(student.email || '').split('@')[0],
+        password: newPassword,
+        email: student.email || '',
+      }]);
+      setCredentialsModalOpen(true);
       toast({
-        title: 'Reset parola trimis',
-        description: `Email de reset trimis catre ${student.email}.`,
+        title: 'Parola resetata',
+        description: 'Noua parola este afisata in fereastra de credentiale. Transmite-o elevului.',
       });
     } catch (error) {
       toast({
         title: 'Reset parola esuat',
-        description: error?.message || 'Nu am putut trimite emailul de resetare.',
+        description: error?.message || 'Nu am putut reseta parola.',
         variant: 'destructive',
       });
     } finally {
@@ -756,17 +772,11 @@ export default function StudentsManagement() {
     try {
       const username = generateUsername(student.full_name, reservedUsernames);
       const newEmail = `${username}@practica.local`;
-      await callWithRetry(() => base44.entities.User.update(student.id, { email: newEmail }), 2);
-
-      const inviteFn = base44.auth?.inviteUser
-        ? (email) => base44.auth.inviteUser(email, 'user')
-        : (email) => base44.users.inviteUser(email, 'user');
-
-      try {
-        await callWithRetry(() => inviteFn(newEmail), 2);
-      } catch (inviteError) {
-        console.warn('Invite skipped during username regeneration:', inviteError);
-      }
+      const password = generatePassword();
+      await callWithRetry(() => base44.entities.User.update(student.id, {
+        email: newEmail,
+        password,
+      }), 2);
 
       await queryClient.invalidateQueries({ queryKey: ['students'] });
       await queryClient.invalidateQueries({ queryKey: ['auditLogs'] });
@@ -783,7 +793,7 @@ export default function StudentsManagement() {
         fullName: student.full_name,
         className: student.className || '-',
         username,
-        password: 'Setata prin link-ul primit pe email',
+        password,
         email: newEmail,
       }]);
       setCredentialsModalOpen(true);
@@ -1034,7 +1044,7 @@ export default function StudentsManagement() {
                         <TableCell><Badge variant="outline">{student.className || '-'}</Badge></TableCell>
                         <TableCell>{student.specialization || '-'}</TableCell>
                         <TableCell>{operator?.name || 'Nealocat'}</TableCell>
-                        <TableCell><Badge variant={student.isActive === false ? 'secondary' : 'default'}>{student.isActive === false ? 'Inactiv' : 'Activ'}</Badge></TableCell>
+                        <TableCell><AccountStatusBadge isActive={student.isActive} /></TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
                             <Button variant="ghost" size="icon" onClick={() => openEditStudentModal(student)} className="h-8 w-8"><Pencil className="h-4 w-4" /></Button>

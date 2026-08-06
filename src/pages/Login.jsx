@@ -21,9 +21,11 @@ function resolveRedirectTarget(rawFromUrl) {
 
 export default function Login() {
     const [searchParams] = useSearchParams();
-    const [email, setEmail] = useState('admin.demo@local.test');
-    const [password, setPassword] = useState('admin123');
+    const [mode, setMode] = useState('login'); // 'login' | 'forgot'
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
+    const [notice, setNotice] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const redirectTarget = useMemo(
@@ -34,6 +36,7 @@ export default function Login() {
     async function handleSubmit(event) {
         event.preventDefault();
         setErrorMessage('');
+        setNotice('');
         setIsSubmitting(true);
         try {
             await base44.auth.loginViaEmailPassword({ email, password });
@@ -45,17 +48,37 @@ export default function Login() {
         }
     }
 
+    async function handleForgot(event) {
+        event.preventDefault();
+        setErrorMessage('');
+        setNotice('');
+        setIsSubmitting(true);
+        try {
+            await base44.auth.resetPasswordRequest(email);
+            setNotice('Daca exista un cont cu acest email, vei primi un link de resetare. Verifica si folderul Spam.');
+        } catch (error) {
+            // Backend always returns success; treat anything else as a soft error.
+            setNotice('Daca exista un cont cu acest email, vei primi un link de resetare.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    }
+
+    const isForgot = mode === 'forgot';
+
     return (
         <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
             <Card className="w-full max-w-md shadow-lg">
                 <CardHeader>
-                    <CardTitle>Autentificare</CardTitle>
+                    <CardTitle>{isForgot ? 'Resetare parola' : 'Autentificare'}</CardTitle>
                     <CardDescription>
-                        Introdu contul utilizatorului pentru testare (admin sau elev).
+                        {isForgot
+                            ? 'Introdu emailul contului si iti trimitem un link de resetare.'
+                            : 'Introdu emailul si parola contului tau.'}
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={isForgot ? handleForgot : handleSubmit} className="space-y-4">
                         <div className="space-y-2">
                             <Label htmlFor="email">Email</Label>
                             <Input
@@ -67,24 +90,44 @@ export default function Login() {
                                 required
                             />
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="password">Parola</Label>
-                            <Input
-                                id="password"
-                                type="password"
-                                value={password}
-                                onChange={(event) => setPassword(event.target.value)}
-                                autoComplete="current-password"
-                                required
-                            />
-                        </div>
+                        {!isForgot && (
+                            <div className="space-y-2">
+                                <Label htmlFor="password">Parola</Label>
+                                <Input
+                                    id="password"
+                                    type="password"
+                                    value={password}
+                                    onChange={(event) => setPassword(event.target.value)}
+                                    autoComplete="current-password"
+                                    required
+                                />
+                            </div>
+                        )}
                         {errorMessage && (
                             <p className="text-sm text-red-600">{errorMessage}</p>
                         )}
+                        {notice && (
+                            <p className="text-sm text-green-700">{notice}</p>
+                        )}
                         <Button type="submit" className="w-full" disabled={isSubmitting}>
-                            {isSubmitting ? 'Se autentifica...' : 'Intra in aplicatie'}
+                            {isSubmitting
+                                ? 'Se proceseaza...'
+                                : (isForgot ? 'Trimite link de resetare' : 'Intra in aplicatie')}
                         </Button>
                     </form>
+                    <div className="mt-4 text-center">
+                        <button
+                            type="button"
+                            className="text-sm text-blue-600 hover:text-blue-800 underline"
+                            onClick={() => {
+                                setErrorMessage('');
+                                setNotice('');
+                                setMode(isForgot ? 'login' : 'forgot');
+                            }}
+                        >
+                            {isForgot ? 'Inapoi la autentificare' : 'Am uitat parola'}
+                        </button>
+                    </div>
                 </CardContent>
             </Card>
         </div>

@@ -6,7 +6,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Clock, Navigation, User, Building2 } from 'lucide-react';
+import { MapPin, Clock, Navigation, User, Building2, Smartphone } from 'lucide-react';
 import { format } from 'date-fns';
 import { ro } from 'date-fns/locale';
 import { getValidationReasonLabel } from '@/lib/attendance-labels';
@@ -82,6 +82,23 @@ export default function AttendanceDetailsModal({ student, attendance, operator, 
                                         <p className="font-semibold">{format(new Date(attendance.timestamp), 'HH:mm:ss')}</p>
                                     </div>
                                 </div>
+
+                                {(attendance.deviceLabel || attendance.deviceUserAgent) && (
+                                    <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                                        <Smartphone className="h-5 w-5 text-gray-600 mt-0.5" />
+                                        <div className="min-w-0">
+                                            <p className="text-xs text-gray-500">Dispozitiv pontaj</p>
+                                            <p className="font-semibold break-words">
+                                                {attendance.deviceLabel || 'Necunoscut'}
+                                            </p>
+                                            {attendance.deviceUserAgent && (
+                                                <p className="text-xs text-gray-400 break-words mt-1">
+                                                    {attendance.deviceUserAgent}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                                     <Navigation className="h-5 w-5 text-gray-600" />

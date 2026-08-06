@@ -14,6 +14,7 @@ const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
 const ADMIN_ONLY_PAGES = new Set([
     'AdminDashboard',
+    'AdminsManagement',
     'OperatorsManagement',
     'ClassManagement',
     'StudentsManagement',
@@ -25,7 +26,7 @@ const ADMIN_ONLY_PAGES = new Set([
 ]);
 
 function canAccessPage(pageName, user) {
-    if (pageName === 'Login') return true;
+    if (pageName === 'Login' || pageName === 'ResetPassword') return true;
     if (user?.role === 'admin') return true;
     return !ADMIN_ONLY_PAGES.has(pageName);
 }
@@ -37,6 +38,7 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
 const AuthenticatedApp = () => {
     const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
     const LoginPage = Pages.Login || null;
+    const ResetPasswordPage = Pages.ResetPassword || null;
     const landingPageKey = user?.role === 'admin'
         ? (Pages.AdminDashboard ? 'AdminDashboard' : mainPageKey)
         : (Pages.StudentHome ? 'StudentHome' : mainPageKey);
@@ -55,10 +57,19 @@ const AuthenticatedApp = () => {
     if (authError) {
         if (authError.type === 'auth_required' && LoginPage) {
             return (
-                <Routes>
-                    <Route path="/Login" element={<LoginPage />} />
-                    <Route path="*" element={<Navigate to="/Login" replace />} />
-                </Routes>
+                <Suspense fallback={
+                    <div className="fixed inset-0 flex items-center justify-center">
+                        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+                    </div>
+                }>
+                    <Routes>
+                        <Route path="/Login" element={<LoginPage />} />
+                        {ResetPasswordPage && (
+                            <Route path="/ResetPassword" element={<ResetPasswordPage />} />
+                        )}
+                        <Route path="*" element={<Navigate to="/Login" replace />} />
+                    </Routes>
+                </Suspense>
             );
         }
 
@@ -78,7 +89,15 @@ const AuthenticatedApp = () => {
                         {authError.message || 'Configuratia aplicatiei este invalida sau incompleta.'}
                     </p>
                     <div className="bg-slate-100 rounded-lg p-3 text-xs text-slate-700">
-                        Configureaza in `.env.local`:
+                        Configureaza variabilele de mediu:
+                        <br />
+                        Local (`.env.local`):
+                        <br />
+                        `VITE_APP_ID=...`
+                        <br />
+                        `VITE_API_BASE_URL=http://127.0.0.1:8787`
+                        <br />
+                        Cloudflare Pages (Production/Preview):
                         <br />
                         `VITE_APP_ID=...`
                         <br />

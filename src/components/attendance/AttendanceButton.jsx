@@ -5,12 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/ui/use-toast';
 import { Loader2, MapPin, AlertTriangle } from 'lucide-react';
-import { calculateDistance, getCurrentPosition, getDateKey } from '@/components/utils/geolocation';
-import {
-    validateAttendanceAttempt,
-    VALIDATION_STATUS,
-    VALIDATION_REASON,
-} from '@/lib/attendance-validation';
+import { calculateDistance, getCurrentPosition } from '@/components/utils/geolocation';
+import { getDeviceInfo } from '@/lib/device-info';
 
 export default function AttendanceButton({ user, operator, onSuccess }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -32,87 +28,40 @@ export default function AttendanceButton({ user, operator, onSuccess }) {
                 throw new Error('Locatia operatorului nu este configurata corect.');
             }
 
-            const dateKey = getDateKey();
-            const existing = await base44.entities.Attendance.filter({
-                studentUserId: user.id,
-                dateKey,
-            });
-
             const position = await getCurrentPosition();
             const rawDistance = calculateDistance(position.lat, position.lng, operator.lat, operator.lng);
             const roundedDistance = Math.round(rawDistance);
             setDistanceMeters(roundedDistance);
 
-            const [periods, classPlans, practiceSchedules, schedules] = await Promise.all([
-                base44.entities.PracticePeriod.list('-created_date', 200),
-                base44.entities.ClassPracticePlan.list('-priority', 200),
-                base44.entities.PracticeSchedule.list('-created_date', 200),
-                base44.entities.Schedule.list('-created_date', 200),
-            ]);
-
-            const validation = validateAttendanceAttempt({
-                now: new Date(),
-                user,
-                operator,
-                existingAttendances: existing,
-                periods,
-                classPlans,
-                practiceSchedules,
-                schedules,
-                distanceMeters: roundedDistance,
-                accuracyMeters: position.accuracy,
-            });
-
-            if (validation.validationStatus !== VALIDATION_STATUS.VALIDA) {
-                const titleMap = {
-                    [VALIDATION_REASON.DUPLICAT_ZI]: 'Prezență deja înregistrată',
-                    [VALIDATION_REASON.IN_AFARA_RAZEI]: 'Prezență respinsă',
-                    [VALIDATION_REASON.IN_AFARA_INTERVALULUI]: 'Pontaj nepermis la această oră',
-                    [VALIDATION_REASON.GPS_SLAB]: 'Precizie GPS insuficientă',
-                    [VALIDATION_REASON.ELEV_INACTIV]: 'Cont inactiv',
-                    [VALIDATION_REASON.FARA_OPERATOR]: 'Operator nealocat',
-                };
-
-                toast({
-                    variant: 'destructive',
-                    title: titleMap[validation.validationReason] || 'Nu am putut înregistra prezența',
-                    description: validation.validationMessage,
-                });
-                return;
-            }
-
-            await base44.entities.Attendance.create({
-                studentUserId: user.id,
-                studentName: user.full_name || '',
-                className: user.className || '',
-                operatorId: operator.id,
-                operatorName: operator.name || '',
-                dateKey,
-                timestamp: new Date().toISOString(),
+            const deviceInfo = getDeviceInfo();
+            const result = await base44.attendance.checkIn({
                 lat: position.lat,
                 lng: position.lng,
                 accuracyMeters: position.accuracy,
-                distanceMeters: roundedDistance,
-                allowedRadiusMeters: validation.allowedRadiusMeters,
-                checkinWindowStart: validation.checkinWindowStart,
-                checkinWindowEnd: validation.checkinWindowEnd,
-                validationStatus: validation.validationStatus,
-                validationReason: validation.validationReason,
-                validationMessage: validation.validationMessage,
-                requiresReview: validation.requiresReview,
-                status: 'present',
+                isMocked: position.isMocked === true,
+                mockCheckAvailable: position.mockCheckAvailable === true,
+                deviceLabel: deviceInfo.deviceLabel,
+                devicePlatform: deviceInfo.devicePlatform,
             });
+
+            const attendance = result?.attendance || null;
+            const validationMessage = attendance?.validationMessage || result?.message || 'Prezenta a fost validata automat.';
+            const validatedDistance = Number.isFinite(Number(attendance?.distanceMeters))
+                ? Number(attendance.distanceMeters)
+                : roundedDistance;
+
+            setDistanceMeters(Math.round(validatedDistance));
 
             toast({
                 title: 'Prezenta inregistrata',
-                description: `${validation.validationMessage} (${roundedDistance}m fata de operator).`,
+                description: `${validationMessage} (${Math.round(validatedDistance)}m fata de operator).`,
             });
             onSuccess?.();
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Nu am putut inregistra prezenta',
-                description: error?.message || 'A aparut o eroare neasteptata.',
+                description: error?.data?.validationMessage || error?.message || 'A aparut o eroare neasteptata.',
             });
         } finally {
             setIsSubmitting(false);

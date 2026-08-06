@@ -5,8 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Plus, Building2, MapPin, Edit2, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import AccountStatusBadge from '@/components/admin/AccountStatusBadge';
+import { Plus, Building2, MapPin, Edit2, Trash2 } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -128,20 +128,7 @@ export default function OperatorsManagement() {
                                         <Building2 className="h-5 w-5 text-blue-600 mt-1" />
                                         <div className="flex-1">
                                             <CardTitle className="text-base">{operator.name}</CardTitle>
-                                            <Badge
-                                                variant={operator.isActive ? 'default' : 'secondary'}
-                                                className="mt-2"
-                                            >
-                                                {operator.isActive ? (
-                                                    <>
-                                                        <CheckCircle className="h-3 w-3 mr-1" /> Activ
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <XCircle className="h-3 w-3 mr-1" /> Inactiv
-                                                    </>
-                                                )}
-                                            </Badge>
+                                            <AccountStatusBadge isActive={operator.isActive} className="mt-2" />
                                         </div>
                                     </div>
                                 </div>

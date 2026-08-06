@@ -11,6 +11,7 @@ import {
 import { format } from 'date-fns';
 import { ro } from 'date-fns/locale';
 import { getDayStatusMeta } from './attendance-status-presets';
+import DashboardStatusLegend from './DashboardStatusLegend';
 
 function formatHeaderDay(dateKey) {
     const dateValue = new Date(`${dateKey}T12:00:00`);
@@ -33,10 +34,11 @@ export default function DashboardAttendanceMatrix({
 }) {
     return (
         <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-base">
                     Matrice prezenta pe perioada ({students.length} elevi)
                 </CardTitle>
+                <DashboardStatusLegend />
             </CardHeader>
             <CardContent className="p-0">
                 <Table>

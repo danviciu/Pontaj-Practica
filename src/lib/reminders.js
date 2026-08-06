@@ -37,6 +37,11 @@ function normalizePhone(value) {
     return raw.replace(/[\s-]/g, '');
 }
 
+function resolvePushLink() {
+    if (typeof window === 'undefined') return '';
+    return String(window.location.origin || '').trim();
+}
+
 export function getReminderCapabilities() {
     const sendEmailMethod = findCoreMethod(['SendEmail']);
     const sendSmsMethod = findCoreMethod(['SendSMS', 'SendSms', 'SendTextMessage']);
@@ -142,6 +147,8 @@ async function sendSms({ student, body }) {
 async function sendPush({ student, title, body }) {
     const sendPushMethod = findCoreMethod(['SendPushNotification', 'SendPush', 'PushNotification']);
     const targetToken = student?.pushToken || student?.deviceToken || '';
+    const pushLink = resolvePushLink();
+    const dataPayload = pushLink ? { link: pushLink } : undefined;
     if (!targetToken && !student?.id) {
         return { status: 'missing_contact', message: 'Elev fara identificator push.' };
     }
@@ -153,6 +160,7 @@ async function sendPush({ student, title, body }) {
                 token: targetToken || undefined,
                 title,
                 body,
+                data: dataPayload,
             });
             return { status: 'sent', message: 'Push trimis prin Core integration.' };
         } catch (error) {
@@ -175,6 +183,7 @@ async function sendPush({ student, title, body }) {
                 body,
                 studentName: student?.full_name,
                 channel: 'push',
+                data: dataPayload,
             });
             return { status: 'sent', message: `Push trimis prin function ${functionName}.` };
         } catch (error) {
@@ -191,7 +200,7 @@ async function sendPush({ student, title, body }) {
 
 export async function sendReminderToStudent({
     student,
-    channels = { email: true, sms: false, push: false },
+    channels = { email: false, sms: false, push: true },
     subject = 'Reminder prezenta practica',
     title = 'Reminder prezenta practica',
     body = '',

@@ -1,6 +1,16 @@
 import { base44, isDemoMode } from '@/api/base44Client';
 
 const STORAGE_KEY = 'attendance.classCatalog.v1';
+export const DEFAULT_CLASS_REMINDER_SETTINGS = {
+    enabled: false,
+    reminderTime: '09:00',
+    onlyAbsent: true,
+    channels: {
+        email: false,
+        push: true,
+        sms: false,
+    },
+};
 
 function generateLocalId() {
     return `local_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`;
@@ -16,14 +26,88 @@ export function normalizeClassName(value) {
     return normalizeWhitespace(value).toUpperCase();
 }
 
+function normalizeReminderChannels(channels = {}) {
+    const normalized = {
+        email: channels.email === true,
+        push: channels.push === true,
+        sms: channels.sms === true,
+    };
+    if (!normalized.email && !normalized.push && !normalized.sms) {
+        normalized.push = true;
+    }
+    return normalized;
+}
+
+function normalizeReminderTime(value) {
+    const candidate = String(value || '').trim();
+    if (!/^\d{2}:\d{2}$/.test(candidate)) return DEFAULT_CLASS_REMINDER_SETTINGS.reminderTime;
+    const [hoursRaw, minutesRaw] = candidate.split(':');
+    const hours = Number(hoursRaw);
+    const minutes = Number(minutesRaw);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        return DEFAULT_CLASS_REMINDER_SETTINGS.reminderTime;
+    }
+    return `${hoursRaw.padStart(2, '0')}:${minutesRaw.padStart(2, '0')}`;
+}
+
+export function normalizeClassReminderSettings(input = {}) {
+    const source = input && typeof input === 'object' ? input : {};
+    return {
+        enabled: source.enabled === true,
+        reminderTime: normalizeReminderTime(source.reminderTime),
+        onlyAbsent: source.onlyAbsent === false ? false : true,
+        channels: normalizeReminderChannels({
+            ...DEFAULT_CLASS_REMINDER_SETTINGS.channels,
+            ...(source.channels || {}),
+        }),
+    };
+}
+
+function hasReminderPayload(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    return (
+        Object.prototype.hasOwnProperty.call(payload, 'reminderSettings')
+        || Object.prototype.hasOwnProperty.call(payload, 'reminderEnabled')
+        || Object.prototype.hasOwnProperty.call(payload, 'reminderTime')
+        || Object.prototype.hasOwnProperty.call(payload, 'reminderOnlyAbsent')
+        || Object.prototype.hasOwnProperty.call(payload, 'reminderChannels')
+    );
+}
+
 function normalizeClassPayload(payload = {}) {
     const name = normalizeClassName(payload.name);
-    return {
+    const normalized = {
         name,
         specialization: normalizeWhitespace(payload.specialization || ''),
         defaultOperatorId: payload.defaultOperatorId || '',
         isActive: payload.isActive !== false,
     };
+    if (hasReminderPayload(payload)) {
+        const mergedReminderSettings = normalizeClassReminderSettings({
+            ...(payload.reminderSettings && typeof payload.reminderSettings === 'object' ? payload.reminderSettings : {}),
+            enabled: payload.reminderEnabled === true
+                ? true
+                : payload.reminderEnabled === false
+                    ? false
+                    : payload.reminderSettings?.enabled,
+            reminderTime: payload.reminderTime || payload.reminderSettings?.reminderTime,
+            onlyAbsent: payload.reminderOnlyAbsent === false
+                ? false
+                : payload.reminderOnlyAbsent === true
+                    ? true
+                    : payload.reminderSettings?.onlyAbsent,
+            channels: {
+                ...(payload.reminderSettings?.channels || {}),
+                ...(payload.reminderChannels && typeof payload.reminderChannels === 'object' ? payload.reminderChannels : {}),
+            },
+        });
+        normalized.reminderSettings = mergedReminderSettings;
+        normalized.reminderEnabled = mergedReminderSettings.enabled;
+        normalized.reminderTime = mergedReminderSettings.reminderTime;
+        normalized.reminderOnlyAbsent = mergedReminderSettings.onlyAbsent;
+        normalized.reminderChannels = mergedReminderSettings.channels;
+    }
+    return normalized;
 }
 
 function readLocalCatalog() {

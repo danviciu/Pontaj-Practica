@@ -1,7 +1,9 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Users, CheckCircle, XCircle, Clock3, UserPlus, ShieldCheck } from 'lucide-react';
+import { Users, CheckCircle, XCircle, Clock3, UserPlus, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { createPageUrl } from '@/utils';
 
 export default function DashboardHeader({
     totalStudents,
@@ -12,6 +14,8 @@ export default function DashboardHeader({
     selectedDate,
     setAddStudentModalOpen,
 }) {
+    const everyoneIsPending = totalStudents > 0 && pendingCount === totalStudents;
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between flex-wrap gap-4">
@@ -88,6 +92,19 @@ export default function DashboardHeader({
                     </CardContent>
                 </Card>
             </div>
+
+            {everyoneIsPending && (
+                <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
+                    <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm leading-relaxed">
+                        <span className="font-semibold">Niciun elev nu a pontat inca pentru {selectedDate}</span> — probabil
+                        nu exista un interval de practica activ azi pentru elevii afisati.{' '}
+                        <Link to={createPageUrl('PracticeSchedulesManagement')} className="font-semibold underline underline-offset-2">
+                            Vezi programele de practica
+                        </Link>.
+                    </p>
+                </div>
+            )}
         </div>
     );
 }
